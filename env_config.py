@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -72,6 +73,61 @@ def get_anthropic_api_key() -> str | None:
     """os.environ 없이 `.env` 파일 내용만으로 API 키를 반환합니다."""
     values = parse_env_file()
     return normalize_api_key(values.get("ANTHROPIC_API_KEY"))
+
+
+def _env_lookup(name: str) -> str | None:
+    values = parse_env_file()
+    value = (values.get(name) or os.environ.get(name) or "").strip()
+    if value:
+        return value
+    return _streamlit_secret(name)
+
+
+def _streamlit_secret(name: str) -> str | None:
+    try:
+        import streamlit as st
+
+        if name in st.secrets:
+            return str(st.secrets[name]).strip()
+        supabase = st.secrets.get("supabase")
+        if supabase:
+            alias = {
+                "SUPABASE_URL": "url",
+                "SUPABASE_ANON_KEY": "anon_key",
+                "SUPABASE_KEY": "anon_key",
+            }
+            key = alias.get(name)
+            if key and supabase.get(key):
+                return str(supabase[key]).strip()
+    except Exception:
+        pass
+    return None
+
+
+def get_supabase_url() -> str | None:
+    url = _env_lookup("SUPABASE_URL")
+    return url or None
+
+
+def get_supabase_anon_key() -> str | None:
+    for name in ("SUPABASE_ANON_KEY", "SUPABASE_KEY", "SUPABASE_SERVICE_ROLE_KEY"):
+        key = _env_lookup(name)
+        if key:
+            return key
+    return None
+
+
+def supabase_config_status() -> dict[str, bool | str]:
+    """UI 진단용 — 값 노출 없이 설정 여부만 반환."""
+    values = parse_env_file()
+    found_keys = [k for k in values if k.startswith("SUPABASE")]
+    return {
+        "env_file_exists": ENV_FILE.is_file(),
+        "env_file": str(ENV_FILE),
+        "url_set": bool(get_supabase_url()),
+        "key_set": bool(get_supabase_anon_key()),
+        "found_keys": ", ".join(found_keys) if found_keys else "(없음)",
+    }
 
 
 def require_anthropic_api_key() -> str:

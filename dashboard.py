@@ -14,9 +14,11 @@ import env_config
 import ai_outlook
 import ai_stock_picks
 import data
-import market_cap_rankings
+import financial_roadmap
 import market_extras
 import pick_analysis
+import roadmap_ai
+import roadmap_db
 import stock_search
 
 importlib.reload(env_config)
@@ -24,9 +26,16 @@ importlib.reload(data)
 importlib.reload(ai_outlook)
 importlib.reload(pick_analysis)
 importlib.reload(ai_stock_picks)
-importlib.reload(market_cap_rankings)
+importlib.reload(financial_roadmap)
+importlib.reload(roadmap_ai)
+importlib.reload(roadmap_db)
 importlib.reload(stock_search)
 importlib.reload(market_extras)
+
+import roadmap_ui
+importlib.reload(roadmap_ui)
+
+from roadmap_ui import render_financial_roadmap_section
 from env_config import ENV_FILE, api_key_preview, get_anthropic_api_key
 from ai_outlook import (
     analyze_market,
@@ -34,14 +43,8 @@ from ai_outlook import (
     build_stock_context,
     get_api_key,
 )
-from ai_stock_picks import (
-    analyze_stock_picks,
-    build_financial_chart,
-    build_macro_context,
-    build_pick_from_profile,
-)
+from ai_stock_picks import build_financial_chart, build_pick_from_profile
 from pick_analysis import build_52w_gauge, build_quarterly_chart
-from market_cap_rankings import fetch_market_cap_rankings, style_rankings_table
 from data import DASHBOARD_SECTIONS, get_tooltip, load_indicator, recent_window
 from market_extras import fetch_fear_greed_index, fetch_sector_week_returns
 from stock_search import fetch_stock_profile, resolve_ticker
@@ -508,29 +511,13 @@ def render_stock_search_section(indicator_snapshot: dict) -> None:
     render_stock_detail(profile, indicator_snapshot)
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
-def get_us_stock_picks(macro_json: str) -> list[dict]:
-    return analyze_stock_picks("us", json.loads(macro_json))
-
-
-@st.cache_data(ttl=3600, show_spinner=False)
-def get_kr_stock_picks(macro_json: str) -> list[dict]:
-    return analyze_stock_picks("kr", json.loads(macro_json))
-
-
-@st.cache_data(ttl=900, show_spinner=False)
-def load_market_cap_rankings(region: str) -> list[dict]:
-    df = fetch_market_cap_rankings(region)
-    return df.to_dict("records")
-
-
 @st.cache_data(ttl=900, show_spinner=False)
 def load_pick_from_profile(profile_json: str) -> dict:
     return build_pick_from_profile(json.loads(profile_json))
 
 
 def render_stock_analysis_sections(pick: dict) -> None:
-    """AI 종목 추천·종목 검색 공통 심화 분석 UI."""
+    """종목 검색 심화 분석 UI."""
     analysis = pick.get("analysis") or {}
     ratios = analysis.get("ratios") or {}
 
@@ -649,133 +636,6 @@ def render_stock_analysis_sections(pick: dict) -> None:
         st.info("연간 재무 차트 데이터가 없습니다.")
 
 
-def render_ai_pick_card(pick: dict) -> None:
-    st.markdown(f"#### {pick['name']} (`{pick['symbol']}`)")
-    if pick.get("intro"):
-        st.caption(pick["intro"])
-
-    render_stock_analysis_sections(pick)
-
-    st.markdown("**추천 이유**")
-    st.success(pick.get("reason", ""))
-    st.markdown("**투자 주의사항**")
-    st.warning(pick.get("caution", ""))
-
-
-def _render_rankings_table(
-    region: str,
-    key_prefix: str,
-    indicator_snapshot: dict,
-) -> None:
-    try:
-        with st.spinner("시가총액 Top 100 불러오는 중..."):
-            rows = load_market_cap_rankings(region)
-            df = pd.DataFrame(rows)
-    except Exception as exc:
-        st.error(f"랭킹 데이터 로드 실패: {exc}")
-        return
-
-    if df.empty:
-        st.warning("표시할 종목이 없습니다.")
-        return
-
-    styled = style_rankings_table(df)
-    selection = st.dataframe(
-        styled,
-        use_container_width=True,
-        hide_index=True,
-        on_select="rerun",
-        selection_mode="single-row",
-        key=f"{key_prefix}_rank_table",
-        column_config={"티커": None},
-    )
-
-    selected_rows = selection.selection.rows if selection.selection else []
-    if selected_rows:
-        row = df.iloc[selected_rows[0]]
-        st.markdown("---")
-        st.markdown(f"**선택 종목 상세 분석 — {row['name']} ({row['ticker']})**")
-        try:
-            with st.spinner(f"{row['ticker']} 상세 조회 중..."):
-                profile = load_stock_profile(row["ticker"])
-            render_stock_detail(profile, indicator_snapshot)
-        except Exception as exc:
-            st.error(f"종목 상세 조회 실패: {exc}")
-    else:
-        st.caption("표에서 행을 클릭하면 해당 종목의 상세 분석이 표시됩니다.")
-
-
-def render_ai_stock_recommendations_section(indicator_snapshot: dict) -> None:
-    st.markdown("### 🤖 AI 종목 추천")
-    st.caption(
-        "Claude가 금리·인플레·VIX·공포탐욕·섹터 히트맵을 반영해 종목을 추천합니다. "
-        "투자 참고용이며 투자 권유가 아닙니다."
-    )
-
-    tab_picks, tab_rank = st.tabs(["AI 추천 종목", "시가총액 Top 100"])
-
-    with tab_picks:
-        api_key = resolve_api_key()
-        if not api_key:
-            st.warning(
-                "`.env` 파일에 API Key를 저장해 주세요. "
-                "프로젝트 폴더의 `.env.example`을 `.env`로 복사한 뒤 키를 입력하면 자동으로 불러옵니다."
-            )
-        else:
-            st.caption(
-                f"로드된 API 키 (앞 10자): `{api_key_preview(api_key)}` · `.env`: `{ENV_FILE}`"
-            )
-            try:
-                fear_greed = load_fear_greed()
-                sectors = load_sector_returns()
-                macro = build_macro_context(indicator_snapshot, fear_greed, sectors)
-            except Exception as exc:
-                st.error(f"거시·시장 데이터 준비 실패: {exc}")
-                macro = {"indicators": indicator_snapshot}
-
-            macro_json = json.dumps(macro, ensure_ascii=False, sort_keys=True)
-            tab_us, tab_kr = st.tabs(["🇺🇸 미장 (미국 5개)", "🇰🇷 국장 (한국 5개)"])
-
-            with tab_us:
-                if st.button("미장 추천 새로고침", key="refresh_us_picks"):
-                    get_us_stock_picks.clear()
-                try:
-                    with st.spinner("Claude가 거시환경을 분석하고 미장 종목을 추천하는 중..."):
-                        us_picks = get_us_stock_picks(macro_json)
-                    for idx, pick in enumerate(us_picks):
-                        with st.container(border=True):
-                            render_ai_pick_card(pick)
-                        if idx < len(us_picks) - 1:
-                            st.markdown("")
-                except Exception as exc:
-                    st.error(f"미장 AI 추천 실패: {_format_ai_error(exc)}")
-
-            with tab_kr:
-                if st.button("국장 추천 새로고침", key="refresh_kr_picks"):
-                    get_kr_stock_picks.clear()
-                try:
-                    with st.spinner("Claude가 거시환경을 분석하고 국장 종목을 추천하는 중..."):
-                        kr_picks = get_kr_stock_picks(macro_json)
-                    for idx, pick in enumerate(kr_picks):
-                        with st.container(border=True):
-                            render_ai_pick_card(pick)
-                        if idx < len(kr_picks) - 1:
-                            st.markdown("")
-                except Exception as exc:
-                    st.error(f"국장 AI 추천 실패: {_format_ai_error(exc)}")
-
-    with tab_rank:
-        tab_us_rank, tab_kr_rank = st.tabs(["미장 Top 100", "국장 Top 100"])
-        with tab_us_rank:
-            if st.button("미장 랭킹 새로고침", key="refresh_us_rank"):
-                load_market_cap_rankings.clear()
-            _render_rankings_table("us", "us", indicator_snapshot)
-        with tab_kr_rank:
-            if st.button("국장 랭킹 새로고침", key="refresh_kr_rank"):
-                load_market_cap_rankings.clear()
-            _render_rankings_table("kr", "kr", indicator_snapshot)
-
-
 def render_ai_outlook_section(indicator_snapshot: dict) -> None:
     st.divider()
     st.markdown("### 🤖 AI 시장 전망")
@@ -870,7 +730,7 @@ except Exception as exc:
     st.error(f"데이터를 불러오지 못했습니다: {exc}")
     st.stop()
 
-tab_main, tab_picks = st.tabs(["📊 지표 & 차트", "🤖 AI 종목 추천"])
+tab_main, tab_roadmap = st.tabs(["📊 지표 & 차트", "🗺️ 재테크 로드맵"])
 
 with tab_main:
     render_all_cards(sections_data)
@@ -884,5 +744,5 @@ with tab_main:
         "데이터: [FRED](https://fred.stlouisfed.org/) · 코스피/금: yfinance · AI: Claude · 5분 캐시"
     )
 
-with tab_picks:
-    render_ai_stock_recommendations_section(indicator_snapshot)
+with tab_roadmap:
+    render_financial_roadmap_section(indicator_snapshot)
