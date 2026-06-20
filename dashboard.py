@@ -23,8 +23,8 @@ import roadmap_db
 import roadmap_debt
 import roadmap_fields
 import roadmap_holdings
-import roadmap_holdings_ocr
 import stock_search
+import roadmap_holdings_ocr
 
 importlib.reload(env_config)
 importlib.reload(data)

@@ -8,11 +8,28 @@ import re
 from typing import Any
 
 from ai_outlook import DEFAULT_MODEL, create_anthropic_client
-from roadmap_fields import STOCK_ACCOUNT_TYPES
-from roadmap_holdings import new_holding
 from stock_search import resolve_ticker
 
-_VALID_ACCOUNTS = set(STOCK_ACCOUNT_TYPES.keys())
+# roadmap_fields 순환 import 방지 — fallback 포함
+_FALLBACK_ACCOUNT_TYPES: dict[str, str] = {
+    "direct": "직접투자",
+    "isa": "ISA",
+    "personal_pension": "개인연금",
+    "irp": "IRP",
+}
+
+
+def _account_types() -> dict[str, str]:
+    try:
+        from roadmap_fields import STOCK_ACCOUNT_TYPES
+
+        return STOCK_ACCOUNT_TYPES
+    except ImportError:
+        return _FALLBACK_ACCOUNT_TYPES
+
+
+def _valid_accounts() -> set[str]:
+    return set(_account_types().keys())
 _MEDIA_TYPES = {
     "png": "image/png",
     "jpg": "image/jpeg",
@@ -46,8 +63,9 @@ def _parse_json_payload(text: str) -> dict[str, Any]:
 
 
 def _normalize_account_type(raw: str | None, fallback: str) -> str:
+    valid = _valid_accounts()
     if not raw:
-        return fallback if fallback in _VALID_ACCOUNTS else "direct"
+        return fallback if fallback in valid else "direct"
     text = str(raw).strip().lower()
     mapping = {
         "isa": "isa",
@@ -68,11 +86,11 @@ def _normalize_account_type(raw: str | None, fallback: str) -> str:
     for key, value in mapping.items():
         if key in text:
             return value
-    return fallback if fallback in _VALID_ACCOUNTS else "direct"
+    return fallback if fallback in valid else "direct"
 
 
 def _build_ocr_prompt(default_account: str) -> str:
-    accounts = ", ".join(f"{k}={v}" for k, v in STOCK_ACCOUNT_TYPES.items())
+    accounts = ", ".join(f"{k}={v}" for k, v in _account_types().items())
     return f"""이 이미지는 한국 증권사/은행 앱의 **주식 보유 계좌** 화면 스크린샷입니다.
 화면에 보이는 **모든 보유 종목**을 추출하세요.
 
@@ -171,6 +189,8 @@ def import_holdings_from_screenshot(
     스크린샷 → new_holding() 형식 목록 + 오류 메시지.
     Returns: (created_holdings, errors)
     """
+    from roadmap_holdings import new_holding
+
     extracted = extract_holdings_from_image(image_bytes, filename, default_account)
     screen_account = extracted["account_type"]
     created: list[dict[str, Any]] = []
