@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 from datetime import datetime, timezone
 from typing import Literal
 
@@ -11,6 +10,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import yfinance as yf
 
+from ai_json_parse import parse_ai_json_object
 from ai_outlook import (
     DEFAULT_MODEL,
     KR_INDICATOR_KEYS,
@@ -129,11 +129,7 @@ def _build_picks_prompt(market: MarketType, macro: dict) -> str:
 
 
 def _parse_claude_picks(text: str) -> list[dict]:
-    cleaned = text.strip()
-    if cleaned.startswith("```"):
-        cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
-        cleaned = re.sub(r"\s*```$", "", cleaned)
-    result = json.loads(cleaned)
+    result = parse_ai_json_object(text)
     picks = result.get("picks", [])
     if not picks:
         raise ValueError("AI가 추천 종목을 반환하지 않았습니다.")

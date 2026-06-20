@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import base64
 import json
-import re
 from typing import Any
 
+from ai_json_parse import parse_ai_json
 from ai_outlook import DEFAULT_MODEL, create_anthropic_client
 from stock_search import resolve_ticker
 
@@ -45,21 +45,10 @@ def _media_type_from_name(filename: str) -> str:
 
 
 def _parse_json_payload(text: str) -> dict[str, Any]:
-    cleaned = text.strip()
-    fence = re.search(r"```(?:json)?\s*([\s\S]*?)```", cleaned)
-    if fence:
-        cleaned = fence.group(1).strip()
-    try:
-        data = json.loads(cleaned)
-        if isinstance(data, list):
-            return {"holdings": data}
-        return data if isinstance(data, dict) else {}
-    except json.JSONDecodeError:
-        start = cleaned.find("{")
-        end = cleaned.rfind("}")
-        if start >= 0 and end > start:
-            return json.loads(cleaned[start : end + 1])
-        raise ValueError("AI 응답에서 JSON을 파싱하지 못했습니다.")
+    data = parse_ai_json(text)
+    if isinstance(data, list):
+        return {"holdings": data}
+    return data if isinstance(data, dict) else {}
 
 
 def _normalize_account_type(raw: str | None, fallback: str) -> str:

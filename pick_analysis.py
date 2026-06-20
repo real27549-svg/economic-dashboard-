@@ -11,6 +11,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import yfinance as yf
 
+from ai_json_parse import parse_ai_json_object
 from ai_outlook import DEFAULT_MODEL, create_anthropic_client
 
 MarketType = Literal["us", "kr"]
@@ -564,11 +565,7 @@ def _fill_gaps_with_ai(
             max_tokens=1800,
             messages=[{"role": "user", "content": prompt}],
         )
-        text = message.content[0].text.strip()
-        if text.startswith("```"):
-            text = re.sub(r"^```(?:json)?\s*", "", text)
-            text = re.sub(r"\s*```$", "", text)
-        ai = json.loads(text)
+        ai = parse_ai_json_object(message.content[0].text)
     except Exception:
         return analysis
 

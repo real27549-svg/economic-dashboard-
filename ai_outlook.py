@@ -2,12 +2,12 @@
 
 import json
 import os
-import re
 from typing import Literal
 
 from anthropic import Anthropic
 
 import env_config
+from ai_json_parse import parse_ai_json_object
 
 MarketType = Literal["us", "kr"]
 
@@ -105,11 +105,7 @@ def _build_prompt(market: MarketType, indicators: dict) -> str:
 
 
 def _parse_json_response(text: str, required_keys: tuple[str, ...]) -> dict:
-    cleaned = text.strip()
-    if cleaned.startswith("```"):
-        cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
-        cleaned = re.sub(r"\s*```$", "", cleaned)
-    result = json.loads(cleaned)
+    result = parse_ai_json_object(text)
     for key in required_keys:
         if key not in result or not str(result[key]).strip():
             raise ValueError(f"AI 응답에 '{key}' 항목이 없습니다.")

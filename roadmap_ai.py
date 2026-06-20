@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import json
-import re
-
+from ai_json_parse import parse_ai_json_object
 from ai_outlook import DEFAULT_MODEL, create_anthropic_client
 from financial_roadmap import (
     ALLOCATION_LABELS,
@@ -133,19 +131,15 @@ def _build_comprehensive_prompt(context: dict, macro: dict) -> str:
   "global_risks": ["리스크1", "리스크2"],
   "plans": {{
     "1y": {{"headline": "...", "target_asset_man": 0, "target_asset_fmt": "...", "allocation": {{"cash": 25, "stocks": 35, "bonds": 25, "real_estate": 15}}, "actions": ["..."], "risks": ["..."]}},
-    "3y": {{ ... }},
-    "5y": {{ ... }},
-    "10y": {{ ... }}
+    "3y": {{"headline": "...", "target_asset_man": 0, "target_asset_fmt": "...", "allocation": {{"cash": 20, "stocks": 40, "bonds": 25, "real_estate": 15}}, "actions": ["..."], "risks": ["..."]}},
+    "5y": {{"headline": "...", "target_asset_man": 0, "target_asset_fmt": "...", "allocation": {{"cash": 15, "stocks": 45, "bonds": 25, "real_estate": 15}}, "actions": ["..."], "risks": ["..."]}},
+    "10y": {{"headline": "...", "target_asset_man": 0, "target_asset_fmt": "...", "allocation": {{"cash": 10, "stocks": 50, "bonds": 25, "real_estate": 15}}, "actions": ["..."], "risks": ["..."]}}
   }}
 }}"""
 
 
 def _parse_comprehensive_response(text: str) -> dict:
-    cleaned = text.strip()
-    if cleaned.startswith("```"):
-        cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
-        cleaned = re.sub(r"\s*```$", "", cleaned)
-    result = json.loads(cleaned)
+    result = parse_ai_json_object(text)
     if "plans" not in result:
         raise ValueError("AI 응답에 plans 항목이 없습니다.")
     for horizon in ROADMAP_HORIZONS:

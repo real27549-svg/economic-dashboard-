@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import json
-import re
 from typing import Any, Literal
 
 import plotly.graph_objects as go
 
+from ai_json_parse import parse_ai_json_object
 from ai_outlook import DEFAULT_MODEL, create_anthropic_client, pick_indicators
 from ai_stock_picks import build_macro_context
 
@@ -438,19 +438,15 @@ def _build_roadmap_prompt(profile: dict, macro: dict) -> str:
       "actions": ["행동 1", "행동 2"],
       "risks": ["리스크 1", "리스크 2"]
     }},
-    "3y": {{ ... }},
-    "5y": {{ ... }},
-    "10y": {{ ... }}
+    "3y": {{"headline": "...", "target_asset_man": 0, "target_asset_fmt": "...", "allocation": {{"cash": 20, "stocks": 40, "bonds": 25, "real_estate": 15}}, "actions": ["..."], "risks": ["..."]}},
+    "5y": {{"headline": "...", "target_asset_man": 0, "target_asset_fmt": "...", "allocation": {{"cash": 15, "stocks": 45, "bonds": 25, "real_estate": 15}}, "actions": ["..."], "risks": ["..."]}},
+    "10y": {{"headline": "...", "target_asset_man": 0, "target_asset_fmt": "...", "allocation": {{"cash": 10, "stocks": 50, "bonds": 25, "real_estate": 15}}, "actions": ["..."], "risks": ["..."]}}
   }}
 }}"""
 
 
 def _parse_json_response(text: str) -> dict:
-    cleaned = text.strip()
-    if cleaned.startswith("```"):
-        cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
-        cleaned = re.sub(r"\s*```$", "", cleaned)
-    result = json.loads(cleaned)
+    result = parse_ai_json_object(text)
     if "plans" not in result:
         raise ValueError("AI 응답에 plans 항목이 없습니다.")
     for horizon in ROADMAP_HORIZONS:
