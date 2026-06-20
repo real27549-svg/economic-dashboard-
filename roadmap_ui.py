@@ -57,6 +57,7 @@ from roadmap_fields import (
     RESIDENCE_TYPES,
     RETIREMENT_PENSION_TYPES,
     RISK_PROFILES,
+    UNIT_NOTE,
     VARIABLE_EVENT_TYPES,
     YES_NO,
 )
@@ -108,7 +109,7 @@ def _render_fixed_form(local_id: str) -> dict:
 
     c1, c2, c3 = st.columns(3)
     with c1:
-        age = int(st.number_input("나이", 18, 80, int(saved.get("age", 35)), 1, key="fx_age"))
+        age = int(st.number_input("나이 (세)", 18, 80, int(saved.get("age", 35)), 1, key="fx_age"))
         birth_date = st.text_input(
             "생년월일 (YYYY-MM-DD)",
             saved.get("birth_date", ""),
@@ -117,7 +118,7 @@ def _render_fixed_form(local_id: str) -> dict:
         gender = st.selectbox("성별", GENDER_OPTIONS, index=_idx(GENDER_OPTIONS, saved.get("gender")), key="fx_gender")
     with c2:
         marital = st.selectbox("결혼 여부", MARITAL_OPTIONS, index=_idx(MARITAL_OPTIONS, saved.get("marital_status")), key="fx_marital")
-        num_children = int(st.number_input("자녀 수", 0, 10, int(saved.get("num_children", 0)), 1, key="fx_children"))
+        num_children = int(st.number_input("자녀 수 (명)", 0, 10, int(saved.get("num_children", 0)), 1, key="fx_children"))
         job = st.selectbox("직업 유형", JOB_TYPES, index=_idx(JOB_TYPES, saved.get("job_type")), key="fx_job")
     with c3:
         education = st.selectbox("최종학력", EDUCATION_OPTIONS, index=_idx(EDUCATION_OPTIONS, saved.get("education")), key="fx_edu")
@@ -128,11 +129,11 @@ def _render_fixed_form(local_id: str) -> dict:
     with c4:
         residence = st.selectbox("거주 형태", RESIDENCE_TYPES, index=_idx(RESIDENCE_TYPES, saved.get("residence_type")), key="fx_residence")
         pension_type = st.selectbox("퇴직연금 유형", RETIREMENT_PENSION_TYPES, index=_idx(RETIREMENT_PENSION_TYPES, saved.get("retirement_pension_type")), key="fx_pension")
-        sub_points = st.text_input("청약 가점", saved.get("subscription_points", ""), key="fx_sub_pts")
+        sub_points = st.text_input("청약 가점 (점)", saved.get("subscription_points", ""), key="fx_sub_pts")
     with c5:
-        credit_score = st.text_input("신용점수 (대략)", saved.get("credit_score", ""), key="fx_credit")
-        retire_age = int(st.number_input("은퇴 희망 나이", 40, 80, int(saved.get("retirement_age", 65)), 1, key="fx_retire"))
-        dependents = int(st.number_input("부양가족 수", 0, 10, int(saved.get("dependents", 0)), 1, key="fx_dep"))
+        credit_score = st.text_input("신용점수 (점)", saved.get("credit_score", ""), key="fx_credit")
+        retire_age = int(st.number_input("은퇴 희망 나이 (세)", 40, 80, int(saved.get("retirement_age", 65)), 1, key="fx_retire"))
+        dependents = int(st.number_input("부양가족 수 (명)", 0, 10, int(saved.get("dependents", 0)), 1, key="fx_dep"))
     with c6:
         risk = st.selectbox("투자 성향", RISK_PROFILES, index=_idx(RISK_PROFILES, saved.get("risk_profile", "중립형")), key="fx_risk")
         special = st.selectbox("장애인/경로우대", YES_NO, index=_idx(YES_NO, saved.get("special_benefit", "아니오")), key="fx_special")
@@ -196,32 +197,33 @@ def _idx(options: tuple | list, value) -> int:
 
 def _render_monthly_form(local_id: str) -> dict:
     st.markdown("#### 월별 업데이트 (매달 말 입력)")
+    st.caption(UNIT_NOTE)
     today = date.today()
     default_ym = f"{today.year}-{today.month:02d}"
     year_month = st.text_input("대상 년월 (YYYY-MM)", default_ym, key="mo_ym")
 
     saved = get_monthly_snapshot(local_id, year_month.strip())
 
-    st.markdown("##### 수입 (만원)")
+    st.markdown("##### 수입")
     income = _render_number_grid(MONTHLY_INCOME_FIELDS, saved, "mo_inc")
 
-    st.markdown("##### 지출 (만원)")
+    st.markdown("##### 지출")
     expense = _render_number_grid(MONTHLY_EXPENSE_FIELDS, saved, "mo_exp")
 
-    st.markdown("##### 자산 (만원)")
+    st.markdown("##### 자산")
     assets = _render_number_grid(MONTHLY_ASSET_FIELDS, saved, "mo_ast")
 
-    st.markdown("##### 부채 (만원)")
+    st.markdown("##### 부채")
     liabilities = _render_number_grid(MONTHLY_LIABILITY_FIELDS, saved, "mo_liab", cols_per_row=2)
 
     monthly = {**income, **expense, **assets, **liabilities}
     metrics = compute_monthly_metrics(monthly)
 
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("자산 합계", metrics["total_assets_fmt"])
-    m2.metric("부채 합계", metrics["total_debt_fmt"])
-    m3.metric("순자산", metrics["net_assets_fmt"])
-    m4.metric("저축률", metrics["savings_rate_fmt"])
+    m1.metric("자산 합계", metrics["total_assets_fmt"], help="단위: 만원")
+    m2.metric("부채 합계", metrics["total_debt_fmt"], help="단위: 만원")
+    m3.metric("순자산", metrics["net_assets_fmt"], help="단위: 만원")
+    m4.metric("저축률", metrics["savings_rate_fmt"], help="단위: %")
 
     if st.button("월별 데이터 저장", type="primary", key="save_monthly"):
         try:
@@ -239,7 +241,8 @@ def _render_monthly_form(local_id: str) -> dict:
 
 def _render_annual_form(local_id: str) -> dict:
     st.markdown("#### 연간 업데이트 (1년에 한 번)")
-    year = int(st.number_input("대상 연도", 2020, 2035, date.today().year, 1, key="an_year"))
+    st.caption(f"{UNIT_NOTE} · 비율(%)·기간(년) 항목은 해당 단위로 입력")
+    year = int(st.number_input("대상 연도 (년)", 2020, 2035, date.today().year, 1, key="an_year"))
     saved = get_annual_snapshot(local_id, year)
 
     annual: dict = {}
@@ -280,9 +283,9 @@ def _render_annual_form(local_id: str) -> dict:
 
     tax = compute_tax_deduction_room(annual)
     t1, t2, t3 = st.columns(3)
-    t1.metric("연금/IRP 절세 잔여", tax["combined_pension_room_fmt"])
-    t2.metric("ISA 납입 잔여", tax["isa_room_fmt"])
-    t3.metric("금융소득", tax["financial_income_fmt"])
+    t1.metric("연금/IRP 절세 잔여", tax["combined_pension_room_fmt"], help="단위: 만원")
+    t2.metric("ISA 납입 잔여", tax["isa_room_fmt"], help="단위: 만원")
+    t3.metric("금융소득", tax["financial_income_fmt"], help="단위: 만원")
     if tax.get("financial_income_warning"):
         st.warning(tax["financial_income_warning"])
 
@@ -428,7 +431,8 @@ def render_financial_roadmap_section(indicator_snapshot: dict) -> None:
     st.markdown("### 🗺️ 재테크 로드맵")
     st.caption(
         "고정·월별·연간·변동 정보를 Supabase에 누적 저장하고 Claude가 맞춤 분석합니다. "
-        "투자 참고용이며 투자 권유가 아닙니다."
+        "투자 참고용이며 투자 권유가 아닙니다. "
+        f"{UNIT_NOTE}"
     )
 
     if not is_supabase_configured():
@@ -524,10 +528,10 @@ def render_financial_roadmap_section(indicator_snapshot: dict) -> None:
         metrics = compute_monthly_metrics(monthly) if monthly else {}
         if metrics:
             c1, c2, c3, c4 = st.columns(4)
-            c1.metric("순자산", metrics.get("net_assets_fmt", "N/A"))
-            c2.metric("저축률", metrics.get("savings_rate_fmt", "N/A"))
-            c3.metric("비상금", metrics.get("liquid_reserve_fmt", "N/A"))
-            c4.metric("월 저축", metrics.get("monthly_savings_fmt", "N/A"))
+            c1.metric("순자산", metrics.get("net_assets_fmt", "N/A"), help="단위: 만원")
+            c2.metric("저축률", metrics.get("savings_rate_fmt", "N/A"), help="단위: %")
+            c3.metric("비상금", metrics.get("liquid_reserve_fmt", "N/A"), help="단위: 만원")
+            c4.metric("월 저축", metrics.get("monthly_savings_fmt", "N/A"), help="단위: 만원")
             _render_history_charts(local_id, metrics)
 
         if not api_key:

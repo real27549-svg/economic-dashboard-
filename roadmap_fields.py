@@ -21,6 +21,8 @@ RETIREMENT_PENSION_TYPES = ("DB", "DC", "없음")
 RISK_PROFILES = ("안정형", "중립형", "공격형")
 YES_NO = ("예", "아니오")
 
+UNIT_NOTE = "※ 금액 입력 단위는 **만원**입니다."
+
 VARIABLE_EVENT_TYPES = {
     "residence_change": "거주 형태 변경",
     "marriage_birth": "결혼/출산",
@@ -35,58 +37,58 @@ VARIABLE_EVENT_TYPES = {
 }
 
 MONTHLY_INCOME_FIELDS: dict[str, str] = {
-    "net_income": "월 실수령액",
-    "bonus": "성과급/상여금 (해당월)",
-    "side_income": "부업 수입",
-    "dividend_income": "배당금 수입",
-    "rental_income": "임대 수입",
-    "other_income": "기타 수입",
-    "special_income": "이번 달 특별 수입",
+    "net_income": "월 실수령액 (만원)",
+    "bonus": "성과급/상여금 (만원, 해당월)",
+    "side_income": "부업 수입 (만원)",
+    "dividend_income": "배당금 수입 (만원)",
+    "rental_income": "임대 수입 (만원)",
+    "other_income": "기타 수입 (만원)",
+    "special_income": "이번 달 특별 수입 (만원)",
 }
 
 MONTHLY_EXPENSE_FIELDS: dict[str, str] = {
-    "food": "월 식비",
-    "transport": "월 교통비",
-    "telecom": "월 통신비",
-    "fixed_total": "월 고정지출 합계",
-    "loan_payment": "월 대출 이자/원금 상환",
-    "insurance": "월 보험료 합계",
-    "education": "월 교육비 (본인/자녀)",
-    "parent_support": "월 부모님 용돈",
-    "leisure": "월 여가/취미",
-    "special_expense": "이번 달 특별 지출",
+    "food": "월 식비 (만원)",
+    "transport": "월 교통비 (만원)",
+    "telecom": "월 통신비 (만원)",
+    "fixed_total": "월 고정지출 합계 (만원)",
+    "loan_payment": "월 대출 이자/원금 (만원)",
+    "insurance": "월 보험료 합계 (만원)",
+    "education": "월 교육비 (만원)",
+    "parent_support": "월 부모님 용돈 (만원)",
+    "leisure": "월 여가/취미 (만원)",
+    "special_expense": "이번 달 특별 지출 (만원)",
 }
 
 MONTHLY_ASSET_FIELDS: dict[str, str] = {
-    "cash_deposit": "현금/예적금 잔액",
-    "domestic_stocks": "국내주식 평가액",
-    "foreign_stocks": "해외주식 평가액",
-    "domestic_etf_fund": "국내ETF/펀드 평가액",
-    "foreign_etf_fund": "해외ETF/펀드 평가액",
-    "crypto": "암호화폐 평가액",
-    "gold_commodities": "금/원자재 평가액",
-    "other_assets": "기타 자산",
-    "jeonse_deposit": "전세보증금",
-    "owned_real_estate": "부동산 시세 (자가)",
+    "cash_deposit": "현금/예적금 (만원)",
+    "domestic_stocks": "국내주식 평가액 (만원)",
+    "foreign_stocks": "해외주식 평가액 (만원)",
+    "domestic_etf_fund": "국내ETF/펀드 (만원)",
+    "foreign_etf_fund": "해외ETF/펀드 (만원)",
+    "crypto": "암호화폐 (만원)",
+    "gold_commodities": "금/원자재 (만원)",
+    "other_assets": "기타 자산 (만원)",
+    "jeonse_deposit": "전세보증금 (만원)",
+    "owned_real_estate": "부동산 시세 (만원)",
 }
 
 MONTHLY_LIABILITY_FIELDS: dict[str, str] = {
-    "debt_total": "부채 총합 (전세대출/주담대/신용/기타)",
+    "debt_total": "부채 총합 (만원)",
 }
 
 ANNUAL_FIELDS: dict[str, str] = {
-    "year_end_refund": "연말정산 환급액",
-    "annual_bonus_total": "연간 성과급/상여금 총합",
-    "irp_contribution": "IRP 납입액",
-    "pension_savings": "연금저축 납입액",
-    "isa_contribution": "ISA 납입액",
-    "housing_subscription": "주택청약 납입액",
-    "medical_expense": "연간 의료비",
-    "donation": "연간 기부금",
-    "health_insurance_settlement": "건강보험료 정산액",
-    "comprehensive_income_tax": "종합소득세 납부액",
-    "financial_income_total": "금융소득 합계 (이자+배당)",
-    "credit_vs_check_ratio": "신용카드 vs 체크카드 비율 (%)",
+    "year_end_refund": "연말정산 환급액 (만원)",
+    "annual_bonus_total": "연간 성과급/상여금 (만원)",
+    "irp_contribution": "IRP 납입액 (만원)",
+    "pension_savings": "연금저축 납입액 (만원)",
+    "isa_contribution": "ISA 납입액 (만원)",
+    "housing_subscription": "주택청약 납입액 (만원)",
+    "medical_expense": "연간 의료비 (만원)",
+    "donation": "연간 기부금 (만원)",
+    "health_insurance_settlement": "건강보험료 정산액 (만원)",
+    "comprehensive_income_tax": "종합소득세 납부액 (만원)",
+    "financial_income_total": "금융소득 합계 (만원)",
+    "credit_vs_check_ratio": "신용 vs 체크카드 비율 (%)",
     "national_pension_years": "국민연금 납입 기간 (년)",
     "housing_lottery_won": "주택청약 당첨 여부",
 }

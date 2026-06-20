@@ -18,7 +18,9 @@ import financial_roadmap
 import market_extras
 import pick_analysis
 import roadmap_ai
+import roadmap_analytics
 import roadmap_db
+import roadmap_fields
 import stock_search
 
 importlib.reload(env_config)
@@ -28,7 +30,9 @@ importlib.reload(pick_analysis)
 importlib.reload(ai_stock_picks)
 importlib.reload(financial_roadmap)
 importlib.reload(roadmap_ai)
+importlib.reload(roadmap_analytics)
 importlib.reload(roadmap_db)
+importlib.reload(roadmap_fields)
 importlib.reload(stock_search)
 importlib.reload(market_extras)
 
