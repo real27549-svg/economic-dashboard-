@@ -18,6 +18,195 @@ from roadmap_fields import (
 )
 from roadmap_debt import compute_debt_analysis, total_debt_man
 
+# 또래 순자산 중앙값 참고치 (만원, 통계청·한국은행 가계금융복지조사 등 간이 추정)
+PEER_NET_WORTH_MEDIAN_MAN: dict[str, float] = {
+    "20-24": 5_000,
+    "25-29": 8_000,
+    "30-34": 15_000,
+    "35-39": 22_000,
+    "40-44": 35_000,
+    "45-49": 45_000,
+    "50-54": 55_000,
+    "55-59": 65_000,
+    "60+": 70_000,
+}
+
+
+def _peer_age_band(age: int) -> str:
+    if age < 25:
+        return "20-24"
+    if age < 30:
+        return "25-29"
+    if age < 35:
+        return "30-34"
+    if age < 40:
+        return "35-39"
+    if age < 45:
+        return "40-44"
+    if age < 50:
+        return "45-49"
+    if age < 55:
+        return "50-54"
+    if age < 60:
+        return "55-59"
+    return "60+"
+
+
+def compute_peer_net_worth_comparison(age: int, net_assets_man: float) -> dict[str, Any]:
+    band = _peer_age_band(age)
+    median = PEER_NET_WORTH_MEDIAN_MAN[band]
+    diff = net_assets_man - median
+    ratio = (net_assets_man / median * 100) if median > 0 else None
+    if diff >= median * 0.2:
+        status = "또래 상위"
+    elif diff >= -median * 0.2:
+        status = "또래 평균 수준"
+    else:
+        status = "또래 대비 부족"
+    return {
+        "age_band": band,
+        "peer_median_man": median,
+        "peer_median_fmt": _format_won(median),
+        "net_assets_man": net_assets_man,
+        "net_assets_fmt": _format_won(net_assets_man),
+        "diff_man": diff,
+        "diff_fmt": _format_won(abs(diff)),
+        "ratio_pct": ratio,
+        "status": status,
+    }
+
+
+def compute_fire_estimate(
+    fixed: dict[str, Any],
+    metrics: dict[str, Any],
+) -> dict[str, Any]:
+    """4% 룰 기반 FIRE 가능 나이 간이 추정."""
+    age = int(fixed.get("age") or 35)
+    net = float(metrics.get("net_assets_man", 0) or 0)
+    monthly_expense = float(metrics.get("total_expense_man", 0) or 0)
+    monthly_savings = max(float(metrics.get("monthly_savings_man", 0) or 0), 0)
+    annual_expense = monthly_expense * 12
+    fire_target = annual_expense * 25 if annual_expense > 0 else 0
+    gap = fire_target - net
+
+    if fire_target <= 0:
+        return {
+            "status": "지출 데이터 필요",
+            "fire_target_fmt": "N/A",
+            "fire_age": None,
+            "detail": "월 지출을 입력하면 FIRE 목표 자산을 계산할 수 있습니다.",
+        }
+    if net >= fire_target:
+        return {
+            "status": "FIRE 달성 가능",
+            "fire_target_fmt": _format_won(fire_target),
+            "fire_age": age,
+            "detail": f"현재 순자산 {_format_won(net)} ≥ FIRE 목표 {_format_won(fire_target)}",
+        }
+    if monthly_savings <= 0:
+        return {
+            "status": "저축 필요",
+            "fire_target_fmt": _format_won(fire_target),
+            "fire_age": None,
+            "detail": f"FIRE 목표 {_format_won(fire_target)}, 부족액 {_format_won(gap)}",
+        }
+
+    balance = net
+    months = 0
+    max_months = (100 - age) * 12
+    r = 0.05 / 12
+    while balance < fire_target and months < max_months:
+        balance = balance * (1 + r) + monthly_savings
+        months += 1
+    fire_age = age + months / 12
+    return {
+        "status": f"약 {fire_age:.0f}세",
+        "fire_target_fmt": _format_won(fire_target),
+        "fire_age": round(fire_age, 1),
+        "detail": f"월 {_format_won(monthly_savings)} 저축·연 5% 수익 가정",
+    }
+
+
+def compute_asset_allocation_breakdown(monthly: dict[str, Any]) -> dict[str, Any]:
+    cash = float(monthly.get("cash_deposit", 0) or 0)
+    domestic = float(monthly.get("domestic_stocks", 0) or 0) + float(
+        monthly.get("domestic_etf_fund", 0) or 0
+    )
+    foreign = float(monthly.get("foreign_stocks", 0) or 0) + float(
+        monthly.get("foreign_etf_fund", 0) or 0
+    )
+    real_estate = float(monthly.get("owned_real_estate", 0) or 0) + float(
+        monthly.get("jeonse_deposit", 0) or 0
+    )
+    other = (
+        float(monthly.get("crypto", 0) or 0)
+        + float(monthly.get("gold_commodities", 0) or 0)
+        + float(monthly.get("other_assets", 0) or 0)
+    )
+    total = cash + domestic + foreign + real_estate + other
+    if total <= 0:
+        return {"total_man": 0, "items": [], "largest": None}
+    items = [
+        ("현금·예금", cash),
+        ("국내 주식·ETF", domestic),
+        ("해외 주식·ETF", foreign),
+        ("부동산·전세", real_estate),
+        ("기타", other),
+    ]
+    pct_items = [
+        {"label": label, "man": val, "pct": val / total * 100}
+        for label, val in items
+        if val > 0
+    ]
+    largest = max(pct_items, key=lambda x: x["pct"]) if pct_items else None
+    return {
+        "total_man": total,
+        "total_fmt": _format_won(total),
+        "items": pct_items,
+        "largest": largest,
+    }
+
+
+def compute_monthly_performance(
+    monthly_history: list[dict[str, Any]],
+    metrics: dict[str, Any],
+) -> dict[str, Any]:
+    points = sorted(
+        [
+            {"year_month": h["year_month"], "net_assets_man": float(h["net_assets_man"])}
+            for h in monthly_history
+            if h.get("year_month") and h.get("net_assets_man") is not None
+        ],
+        key=lambda x: x["year_month"],
+    )
+    current = float(metrics.get("net_assets_man", 0) or 0)
+    savings_rate = metrics.get("savings_rate_pct")
+
+    if len(points) >= 2:
+        prev = points[-2]["net_assets_man"]
+        change = current - prev if current else points[-1]["net_assets_man"] - prev
+        change_pct = (change / prev * 100) if prev else None
+    elif len(points) == 1:
+        prev = points[0]["net_assets_man"]
+        change = current - prev
+        change_pct = (change / prev * 100) if prev else None
+    else:
+        prev = None
+        change = None
+        change_pct = None
+
+    return {
+        "history_count": len(points),
+        "previous_net_man": prev,
+        "previous_net_fmt": _format_won(prev) if prev is not None else "N/A",
+        "change_man": change,
+        "change_fmt": _format_won(abs(change)) if change is not None else "N/A",
+        "change_direction": "증가" if (change or 0) >= 0 else "감소",
+        "change_pct": change_pct,
+        "current_savings_rate_pct": savings_rate,
+        "current_savings_rate_fmt": metrics.get("savings_rate_fmt", "N/A"),
+    }
+
 
 def _sum_fields(data: dict, fields: dict[str, str]) -> float:
     return sum(float(data.get(k, 0) or 0) for k in fields)
@@ -160,11 +349,14 @@ def build_analysis_context(
     annual_history: list[dict[str, Any]],
     variable_events: list[dict[str, Any]],
     monthly_history: list[dict[str, Any]],
+    holdings: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     metrics = compute_monthly_metrics(monthly)
     tax_room = compute_tax_deduction_room(annual)
     pension_est = estimate_pension_monthly(fixed, monthly, annual)
     home_timeline = estimate_home_timeline(fixed, metrics)
+    age = int(fixed.get("age") or 35)
+    net = float(metrics.get("net_assets_man", 0) or 0)
 
     risk = fixed.get("risk_profile", "중립형")
     recommended = RECOMMENDED_SAVINGS_RATE.get(risk, 20)
@@ -206,6 +398,11 @@ def build_analysis_context(
         "home_timeline": home_timeline,
         "savings_comparison": savings_comparison,
         "debt_analysis": metrics.get("debt_analysis") or {},
+        "peer_comparison": compute_peer_net_worth_comparison(age, net),
+        "fire_estimate": compute_fire_estimate(fixed, metrics),
+        "asset_allocation": compute_asset_allocation_breakdown(monthly),
+        "monthly_performance": compute_monthly_performance(history_points, metrics),
+        "holdings": holdings or [],
     }
 
 

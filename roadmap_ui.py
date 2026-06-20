@@ -14,13 +14,12 @@ from env_config import (
     supabase_config_status,
 )
 import env_config
-from financial_roadmap import (
-    HORIZON_LABELS,
-    ROADMAP_HORIZONS,
-    build_allocation_pie,
-    build_roadmap_macro,
+from financial_roadmap import build_roadmap_macro
+from roadmap_ai import (
+    CHAT_EXAMPLE_QUESTIONS,
+    chat_financial_advisor,
+    generate_comprehensive_roadmap,
 )
-from roadmap_ai import generate_comprehensive_roadmap
 from roadmap_analytics import (
     build_analysis_context,
     build_net_worth_chart,
@@ -1149,86 +1148,161 @@ def _render_history_charts(local_id: str, metrics: dict) -> None:
         )
 
 
+def _render_section_fields(section: dict, fields: list[tuple[str, str]], warn_keys: set[str] | None = None) -> None:
+    warn_keys = warn_keys or set()
+    for key, title in fields:
+        val = section.get(key)
+        if not val:
+            continue
+        if isinstance(val, list):
+            if not val:
+                continue
+            st.markdown(f"**{title}**")
+            for item in val:
+                st.markdown(f"- {item}")
+            continue
+        text = str(val).strip()
+        if not text or text == "해당 없음":
+            continue
+        st.markdown(f"**{title}**")
+        if key in warn_keys:
+            st.warning(text)
+        else:
+            st.write(text)
+
+
 def _render_ai_results(roadmap: dict) -> None:
     st.success(roadmap.get("summary", ""))
     if roadmap.get("macro_note"):
         st.info(f"**거시환경** — {roadmap['macro_note']}")
 
-    insight_fields = [
-        ("savings_rate_note", "저축률 분석"),
-        ("emergency_fund_note", "비상금 평가"),
-        ("tax_deduction_analysis", "절세 가능 금액 (IRP·연금저축·ISA)"),
-        ("financial_income_tax_warning", "금융소득종합과세 주의"),
-        ("comprehensive_income_tax_strategy", "종합소득세 절세 전략"),
-        ("home_purchase_timeline", "내집마련 달성 시기"),
-        ("homeless_benefits", "무주택자 혜택"),
-        ("credit_score_guide", "신용점수 관리"),
-        ("health_insurance_savings", "건강보험료 절감"),
-        ("insurance_remodeling", "생애주기별 보험 리모델링"),
-        ("savings_simulation_note", "저축 시뮬레이션"),
-        ("debt_analysis_note", "부채·자산 비율 분석"),
-        ("dsr_note", "DSR (총부채원리금상환비율)"),
-        ("variable_rate_warning", "변동금리·금리 인상 리스크"),
-    ]
-    for key, title in insight_fields:
-        val = roadmap.get(key)
-        if val and str(val).strip() and str(val).strip() != "해당 없음":
-            st.markdown(f"**{title}**")
-            if key == "financial_income_tax_warning" or key == "variable_rate_warning":
-                st.warning(val)
-            else:
-                st.write(val)
+    s1 = roadmap.get("section_1_diagnosis") or {}
+    with st.expander("1️⃣ 현재 재무 상태 진단", expanded=True):
+        _render_section_fields(
+            s1,
+            [
+                ("net_worth_analysis", "순자산 분석 (또래 평균 대비)"),
+                ("savings_rate_evaluation", "저축률 평가"),
+                ("debt_health", "부채 건전성 (DSR·부채비율)"),
+                ("emergency_fund", "비상금 충분 여부"),
+                ("asset_allocation_balance", "자산 배분 균형"),
+            ],
+        )
 
-    if roadmap.get("repayment_priority_guide"):
-        st.markdown("**대출 상환 우선순위 가이드**")
-        for tip in roadmap["repayment_priority_guide"]:
-            st.markdown(f"- {tip}")
+    s2 = roadmap.get("section_2_tax") or {}
+    with st.expander("2️⃣ 절세 분석", expanded=True):
+        _render_section_fields(
+            s2,
+            [
+                ("irp_pension_tax_saving", "IRP·연금저축 추가 납입 절세"),
+                ("isa_strategy", "ISA 활용 전략"),
+                ("financial_income_tax_warning", "금융소득종합과세 주의"),
+                ("health_insurance_savings", "건강보험료 절감"),
+                ("comprehensive_income_tax_strategy", "종합소득세 절세 전략"),
+            ],
+            warn_keys={"financial_income_tax_warning"},
+        )
 
-    pension = roadmap.get("pension_monthly_estimate") or {}
-    if pension:
-        st.markdown("**노후 월수령액 (추정)**")
-        pc = st.columns(4)
-        pc[0].metric("국민연금", pension.get("national", "N/A"))
-        pc[1].metric("연금저축", pension.get("personal", "N/A"))
-        pc[2].metric("IRP", pension.get("irp", "N/A"))
-        pc[3].metric("합계", pension.get("total", "N/A"))
-        if pension.get("note"):
-            st.caption(pension["note"])
+    s3 = roadmap.get("section_3_goals") or {}
+    with st.expander("3️⃣ 목표별 달성 시뮬레이션", expanded=False):
+        _render_section_fields(
+            s3,
+            [
+                ("home_purchase", "내집마련 달성 시기"),
+                ("retirement", "노후준비 (은퇴 시점 자산·월 수령액)"),
+                ("fire_age", "FIRE 가능 나이"),
+                ("children_education", "자녀교육비 준비 현황"),
+            ],
+        )
 
-    if roadmap.get("tax_strategy"):
-        st.markdown("**절세 전략**")
-        for tip in roadmap["tax_strategy"]:
-            st.markdown(f"- {tip}")
+    s4 = roadmap.get("section_4_risks") or {}
+    with st.expander("4️⃣ 리스크 분석", expanded=False):
+        _render_section_fields(
+            s4,
+            [
+                ("variable_rate_scenario", "변동금리 금리 인상 시나리오"),
+                ("income_disruption", "소득 중단 시 버틸 기간"),
+                ("concentration_risk", "자산 쏠림 리스크"),
+                ("insurance_gap", "보험 공백 리스크"),
+            ],
+            warn_keys={"variable_rate_scenario", "concentration_risk", "insurance_gap"},
+        )
 
-    if roadmap.get("global_risks"):
-        st.markdown("**리스크 경고**")
-        for risk in roadmap["global_risks"]:
-            st.warning(risk)
+    s5 = roadmap.get("section_5_action_plan") or {}
+    with st.expander("5️⃣ 실행 가이드 (월별 액션플랜)", expanded=False):
+        _render_section_fields(
+            s5,
+            [
+                ("this_month", "이번 달 당장 해야 할 것"),
+                ("within_3_months", "3개월 안에 할 것"),
+                ("within_1_year", "1년 안에 할 것"),
+                ("mid_long_term", "중장기 로드맵"),
+            ],
+        )
 
+    s6 = roadmap.get("section_6_monthly_report") or {}
+    with st.expander("6️⃣ 월별 성과 리포트", expanded=False):
+        _render_section_fields(
+            s6,
+            [
+                ("net_worth_change", "지난달 대비 순자산 변화"),
+                ("savings_rate_trend", "저축률 추이"),
+                ("goal_achievement", "목표 달성률"),
+                ("strengths", "잘한 점"),
+                ("improvements", "개선할 점"),
+            ],
+        )
+
+
+def _chat_session_key(local_id: str) -> str:
+    return f"roadmap_chat_{local_id}"
+
+
+def _render_ai_chat(local_id: str, context: dict, macro: dict) -> None:
     st.divider()
-    plan_tabs = st.tabs([HORIZON_LABELS[h] for h in ROADMAP_HORIZONS])
-    plans = roadmap.get("plans") or {}
-    for tab, horizon in zip(plan_tabs, ROADMAP_HORIZONS):
-        with tab:
-            plan = plans.get(horizon)
-            if not plan:
-                st.warning(f"{HORIZON_LABELS[horizon]} 데이터 없음")
-                continue
-            st.markdown(f"**{plan.get('headline', HORIZON_LABELS[horizon])}**")
-            st.metric("목표 자산", plan.get("target_asset_fmt", "N/A"))
-            col_chart, col_guide = st.columns([1, 1])
-            with col_chart:
-                st.plotly_chart(
-                    build_allocation_pie(plan.get("allocation") or {}, f"{HORIZON_LABELS[horizon]} 배분"),
-                    use_container_width=True,
+    st.markdown("#### 💬 AI 재무 상담")
+    st.caption("위 분석을 바탕으로 내 재무 상황에 맞는 질문을 해보세요.")
+
+    chat_key = _chat_session_key(local_id)
+    if chat_key not in st.session_state:
+        st.session_state[chat_key] = []
+
+    col_refresh, _ = st.columns([1, 4])
+    with col_refresh:
+        if st.button("대화 새로고침", key=f"chat_reset_{local_id}"):
+            st.session_state[chat_key] = []
+            st.rerun()
+
+    for msg in st.session_state[chat_key]:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+
+    ex_cols = st.columns(3)
+    short_labels = ("IRP 추가납입", "성과급 활용", "전세 vs 매매")
+    for col, question, label in zip(ex_cols, CHAT_EXAMPLE_QUESTIONS, short_labels):
+        with col:
+            if st.button(label, key=f"chat_ex_{label}_{local_id[:8]}", use_container_width=True):
+                st.session_state[f"chat_pending_{local_id}"] = question
+
+    pending = st.session_state.pop(f"chat_pending_{local_id}", None)
+    user_input = st.chat_input("재무 관련 질문을 입력하세요", key=f"chat_input_{local_id}")
+    prompt = pending or user_input
+
+    if prompt:
+        st.session_state[chat_key].append({"role": "user", "content": prompt})
+        try:
+            with st.spinner("AI가 답변을 작성하는 중..."):
+                reply = chat_financial_advisor(
+                    context,
+                    macro,
+                    st.session_state[chat_key][:-1],
+                    prompt,
                 )
-            with col_guide:
-                st.markdown("**실행 가이드**")
-                for action in plan.get("actions") or []:
-                    st.markdown(f"- {action}")
-                st.markdown("**리스크**")
-                for risk in plan.get("risks") or []:
-                    st.warning(risk)
+            st.session_state[chat_key].append({"role": "assistant", "content": reply})
+        except Exception as exc:
+            st.session_state[chat_key].pop()
+            st.error(f"상담 실패: {exc}")
+        st.rerun()
 
 
 def render_financial_roadmap_section(indicator_snapshot: dict) -> None:
@@ -1368,6 +1442,7 @@ def render_financial_roadmap_section(indicator_snapshot: dict) -> None:
                 ym = _active_year_month()
                 monthly_data = get_monthly_snapshot(local_id, ym) or {**monthly, **assets_data}
                 annual_data = get_annual_snapshot(local_id, date.today().year) or annual
+                holdings = get_stock_holdings(local_id) or []
 
                 context = build_analysis_context(
                     fixed_data,
@@ -1376,6 +1451,7 @@ def render_financial_roadmap_section(indicator_snapshot: dict) -> None:
                     annual_history,
                     variable_events,
                     monthly_history,
+                    holdings=holdings,
                 )
 
                 with st.spinner("거시지표 반영 중..."):
@@ -1383,11 +1459,36 @@ def render_financial_roadmap_section(indicator_snapshot: dict) -> None:
                     sectors = _load_sector_returns()
                     macro = build_roadmap_macro(indicator_snapshot, fear_greed, sectors)
 
-                with st.spinner("Claude가 종합 로드맵을 작성하는 중..."):
+                with st.spinner("Claude가 6가지 재무 분석을 작성하는 중..."):
                     roadmap = generate_comprehensive_roadmap(context, macro)
                 st.session_state["roadmap_ai_result"] = roadmap
+                st.session_state[f"roadmap_ai_context_{local_id}"] = context
+                st.session_state[f"roadmap_ai_macro_{local_id}"] = macro
             except Exception as exc:
                 st.error(f"AI 분석 실패: {exc}")
 
         if st.session_state.get("roadmap_ai_result"):
             _render_ai_results(st.session_state["roadmap_ai_result"])
+            ctx = st.session_state.get(f"roadmap_ai_context_{local_id}")
+            mac = st.session_state.get(f"roadmap_ai_macro_{local_id}")
+            if (not ctx or not mac) and api_key:
+                try:
+                    ym = _active_year_month()
+                    monthly_data = get_monthly_snapshot(local_id, ym) or {**monthly, **assets_data}
+                    ctx = build_analysis_context(
+                        get_fixed_profile(local_id) or fixed or {},
+                        monthly_data,
+                        get_annual_snapshot(local_id, date.today().year) or annual or {},
+                        list_annual_history(local_id),
+                        list_variable_events(local_id),
+                        list_monthly_history(local_id),
+                        holdings=get_stock_holdings(local_id) or [],
+                    )
+                    fear_greed = _load_fear_greed()
+                    sectors = _load_sector_returns()
+                    mac = build_roadmap_macro(indicator_snapshot, fear_greed, sectors)
+                except Exception:
+                    ctx = None
+                    mac = None
+            if ctx and mac and api_key:
+                _render_ai_chat(local_id, ctx, mac)

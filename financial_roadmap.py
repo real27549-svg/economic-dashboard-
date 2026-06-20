@@ -521,6 +521,3 @@ def build_roadmap_macro(
     sectors: list[dict],
 ) -> dict:
     return build_macro_context(indicator_snapshot, fear_greed, sectors)
-
-
-from roadmap_ai import generate_comprehensive_roadmap  # noqa: E402, F401
