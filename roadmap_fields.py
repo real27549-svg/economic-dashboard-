@@ -21,6 +21,18 @@ RETIREMENT_PENSION_TYPES = ("DB", "DC", "없음")
 RISK_PROFILES = ("안정형", "중립형", "공격형")
 YES_NO = ("예", "아니오")
 
+STOCK_ACCOUNT_TYPES: dict[str, str] = {
+    "direct": "직접투자",
+    "isa": "ISA",
+    "personal_pension": "개인연금",
+    "irp": "IRP",
+}
+
+STOCK_MARKET_LABELS: dict[str, str] = {
+    "domestic": "국내",
+    "foreign": "해외",
+}
+
 UNIT_NOTE = "※ 금액 입력 단위는 **만원**입니다."
 
 VARIABLE_EVENT_TYPES = {
@@ -73,7 +85,7 @@ MONTHLY_ASSET_FIELDS: dict[str, str] = {
 }
 
 MONTHLY_LIABILITY_FIELDS: dict[str, str] = {
-    "debt_total": "부채 총합 (만원)",
+    "debt_total": "부채 총합 (만원, 레거시·자동합산)",
 }
 
 ANNUAL_FIELDS: dict[str, str] = {

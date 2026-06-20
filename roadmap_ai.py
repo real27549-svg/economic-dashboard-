@@ -12,6 +12,7 @@ from financial_roadmap import (
     _format_macro_block,
     _format_won,
 )
+from roadmap_debt import format_debt_block_for_ai
 
 
 def _format_history_lines(history: list[dict]) -> str:
@@ -45,6 +46,8 @@ def _build_comprehensive_prompt(context: dict, macro: dict) -> str:
     pension = context.get("pension_estimate") or {}
     home = context.get("home_timeline") or {}
     savings_cmp = context.get("savings_comparison") or {}
+    debt = context.get("debt_analysis") or {}
+    debt_text = format_debt_block_for_ai(debt) if debt else "  - (대출 상세 없음)"
     macro_text = _format_macro_block(macro)
 
     goals = ", ".join(fixed.get("goals") or fixed.get("goal") or ["자산증식"])
@@ -74,6 +77,9 @@ def _build_comprehensive_prompt(context: dict, macro: dict) -> str:
 - 순자산: {metrics.get('net_assets_fmt', 'N/A')} (자산 {metrics.get('total_assets_fmt')} − 부채 {metrics.get('total_debt_fmt')})
 - 비상금: {metrics.get('liquid_reserve_fmt', 'N/A')} — {metrics.get('emergency_fund_status', '')}
 
+## 부채·대출 분석 (시스템 계산)
+{debt_text}
+
 ## 연간 정보 (올해, 만원)
 - IRP 납입: {_format_won(float(annual.get('irp_contribution', 0) or 0))} · 연금저축: {_format_won(float(annual.get('pension_savings', 0) or 0))}
 - ISA: {_format_won(float(annual.get('isa_contribution', 0) or 0))} · 금융소득: {tax_room.get('financial_income_fmt', 'N/A')}
@@ -97,6 +103,8 @@ def _build_comprehensive_prompt(context: dict, macro: dict) -> str:
 - IRP/연금저축/ISA 절세 한도 대비 납입 현황과 추가 납입 여력을 tax_deduction_analysis에 작성하세요.
 - 금융소득 2천만원 종합과세 임박 시 financial_income_tax_warning에 경고하세요.
 - 종합소득세·건강보험료 절감, 무주택 청약/대출 혜택, 신용점수 관리, 생애주기별 보험 리모델링을 포함하세요.
+- 변동금리 비중이 50% 이상이면 variable_rate_warning에 금리 인상 리스크를 경고하세요.
+- DSR·부채/자산 비율·상환 우선순위를 debt_analysis_note, dsr_note, repayment_priority_guide에 반영하세요.
 - 1/3/5/10년 plans: target_asset_man(만원), allocation(합100), actions, risks.
 - savings_simulation_note: 비관/중립/낙관 시나리오 해석 2~3문장.
 - 단정적 수익 보장·특정 종목 매수 권유 금지. 한국어.
@@ -117,6 +125,10 @@ def _build_comprehensive_prompt(context: dict, macro: dict) -> str:
   "health_insurance_savings": "건강보험료 절감",
   "insurance_remodeling": "생애주기별 보험 리모델링",
   "savings_simulation_note": "저축 시뮬레이션 해석",
+  "debt_analysis_note": "총 부채 대비 자산·순자산 관점 분석",
+  "dsr_note": "DSR 수준 및 적정성 (40% 주의, 50% 위험 참고)",
+  "variable_rate_warning": "변동금리 비중·금리 인상 리스크 (해당 없으면 해당 없음)",
+  "repayment_priority_guide": ["금리 높은 대출부터 상환 권고 1", "권고 2"],
   "tax_strategy": ["절세 팁1", "절세 팁2"],
   "global_risks": ["리스크1", "리스크2"],
   "plans": {{

@@ -49,12 +49,19 @@ CREATE TABLE IF NOT EXISTS roadmap_variable_events (
 CREATE INDEX IF NOT EXISTS idx_variable_local_time
   ON roadmap_variable_events (local_id, recorded_at DESC);
 
+CREATE TABLE IF NOT EXISTS roadmap_stock_holdings (
+  local_id TEXT PRIMARY KEY REFERENCES roadmap_users(local_id) ON DELETE CASCADE,
+  data JSONB NOT NULL DEFAULT '[]'::jsonb,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- RLS (로그인 없이 anon key + local_id로 사용)
 ALTER TABLE roadmap_users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE roadmap_fixed_profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE roadmap_monthly_snapshots ENABLE ROW LEVEL SECURITY;
 ALTER TABLE roadmap_annual_snapshots ENABLE ROW LEVEL SECURITY;
 ALTER TABLE roadmap_variable_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE roadmap_stock_holdings ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "roadmap_users_anon_all" ON roadmap_users
   FOR ALL TO anon USING (true) WITH CHECK (true);
@@ -65,4 +72,6 @@ CREATE POLICY "roadmap_monthly_anon_all" ON roadmap_monthly_snapshots
 CREATE POLICY "roadmap_annual_anon_all" ON roadmap_annual_snapshots
   FOR ALL TO anon USING (true) WITH CHECK (true);
 CREATE POLICY "roadmap_variable_anon_all" ON roadmap_variable_events
+  FOR ALL TO anon USING (true) WITH CHECK (true);
+CREATE POLICY "roadmap_holdings_anon_all" ON roadmap_stock_holdings
   FOR ALL TO anon USING (true) WITH CHECK (true);

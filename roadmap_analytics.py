@@ -13,10 +13,10 @@ from roadmap_fields import (
     MONTHLY_ASSET_FIELDS,
     MONTHLY_EXPENSE_FIELDS,
     MONTHLY_INCOME_FIELDS,
-    MONTHLY_LIABILITY_FIELDS,
     RECOMMENDED_SAVINGS_RATE,
     TAX_LIMITS_MAN,
 )
+from roadmap_debt import compute_debt_analysis, total_debt_man
 
 
 def _sum_fields(data: dict, fields: dict[str, str]) -> float:
@@ -27,8 +27,9 @@ def compute_monthly_metrics(monthly: dict[str, Any]) -> dict[str, Any]:
     total_income = _sum_fields(monthly, MONTHLY_INCOME_FIELDS)
     total_expense = _sum_fields(monthly, MONTHLY_EXPENSE_FIELDS)
     total_assets = _sum_fields(monthly, MONTHLY_ASSET_FIELDS)
-    total_debt = float(monthly.get("debt_total", 0) or 0)
+    total_debt = total_debt_man(monthly)
     net_assets = total_assets - total_debt
+    debt_analysis = compute_debt_analysis(monthly, total_assets)
 
     fixed_total = float(monthly.get("fixed_total", 0) or 0)
     variable_approx = max(total_expense - fixed_total, 0)
@@ -55,6 +56,11 @@ def compute_monthly_metrics(monthly: dict[str, Any]) -> dict[str, Any]:
         "emergency_fund_adequate": emergency["is_adequate"],
         "liquid_reserve_man": emergency["liquid_reserve_man"],
         "liquid_reserve_fmt": emergency["liquid_reserve_fmt"],
+        "debt_analysis": debt_analysis,
+        "dsr_fmt": debt_analysis["dsr_fmt"],
+        "dsr_status": debt_analysis["dsr_status"],
+        "debt_to_asset_fmt": debt_analysis["debt_to_asset_fmt"],
+        "variable_ratio_fmt": debt_analysis["variable_ratio_fmt"],
     }
 
 
@@ -199,6 +205,7 @@ def build_analysis_context(
         "pension_estimate": pension_est,
         "home_timeline": home_timeline,
         "savings_comparison": savings_comparison,
+        "debt_analysis": metrics.get("debt_analysis") or {},
     }
 
 

@@ -134,6 +134,68 @@ NAME_TO_TICKER: dict[str, str] = {
     "Palantir": "PLTR",
     "스노우플레이크": "SNOW",
     "Snowflake": "SNOW",
+    # 미국 — 주요 ETF
+    "S&P500": "SPY",
+    "S&P 500": "SPY",
+    "에스앤피500": "SPY",
+    "나스닥100": "QQQ",
+    "나스닥": "QQQ",
+    "NASDAQ100": "QQQ",
+    "VOO": "VOO",
+    "VTI": "VTI",
+    "IVV": "IVV",
+    "DIA": "DIA",
+    "다우": "DIA",
+    "다우존스": "DIA",
+    "ARKK": "ARKK",
+    "SOXX": "SOXX",
+    "XLK": "XLK",
+    "XLF": "XLF",
+    "XLE": "XLE",
+    "GLD": "GLD",
+    "SLV": "SLV",
+    "TLT": "TLT",
+    "IWM": "IWM",
+    "EEM": "EEM",
+    "VEA": "VEA",
+    "VWO": "VWO",
+    # 한국 — 주요 ETF (KODEX / TIGER / RISE / SOL / ACE 등)
+    "KODEX 200": "069500.KS",
+    "KODEX200": "069500.KS",
+    "코덱스200": "069500.KS",
+    "코덱스 200": "069500.KS",
+    "KODEX 코스닥150": "229200.KS",
+    "KODEX 코스피": "069500.KS",
+    "KODEX S&P500": "379800.KS",
+    "KODEX 미국S&P500": "379800.KS",
+    "KODEX S&P 500": "379800.KS",
+    "KODEX 나스닥100": "379810.KS",
+    "KODEX 레버리지": "122630.KS",
+    "KODEX 200선물인버스2X": "252670.KS",
+    "TIGER 200": "102110.KS",
+    "TIGER S&P500": "360750.KS",
+    "TIGER S&P 500": "360750.KS",
+    "TIGER 미국S&P500": "360750.KS",
+    "TIGER 나스닥100": "133690.KS",
+    "TIGER NASDAQ100": "133690.KS",
+    "TIGER 미국나스닥100": "133690.KS",
+    "TIGER 차이나전기차": "371460.KS",
+    "TIGER 미국테크TOP10": "381170.KS",
+    "RISE 200": "148020.KS",
+    "RISE S&P500": "379780.KS",
+    "SOL 200": "152100.KS",
+    "SOL 미국S&P500": "433330.KS",
+    "ACE 200": "105190.KS",
+    "ACE S&P500": "453660.KS",
+    "HANARO 200": "091160.KS",
+    "PLUS 200": "152100.KS",
+    "KBSTAR 200": "069660.KS",
+    "ARIRANG 200": "152100.KS",
+    "069500": "069500.KS",
+    "360750": "360750.KS",
+    "133690": "133690.KS",
+    "379800": "379800.KS",
+    "229200": "229200.KS",
 }
 
 _TICKER_LOOKUP: dict[str, str] = {}
@@ -147,6 +209,53 @@ for _name, _ticker in NAME_TO_TICKER.items():
 _TICKER_LIKE = re.compile(
     r"^(\^)?[\dA-Za-z]+([.-][A-Za-z0-9]+)?(\.(KS|KQ|US|NY|NASDAQ|L|TO|AX)?)?$"
 )
+_KR_STOCK_CODE = re.compile(r"^(\d{6})(\.(KS|KQ))?$")
+
+
+def _normalize_query(text: str) -> str:
+    return text.strip().replace(" ", "").lower()
+
+
+def _pick_best_search_quote(query: str, quotes: list[dict]) -> dict | None:
+    if not quotes:
+        return None
+    raw = query.strip()
+    compact = _normalize_query(raw)
+    for quote in quotes:
+        for field in ("shortname", "longname", "symbol"):
+            value = quote.get(field) or ""
+            if _normalize_query(str(value)) == compact:
+                return quote
+    for quote in quotes:
+        shortname = _normalize_query(quote.get("shortname") or "")
+        if compact in shortname or shortname in compact:
+            return quote
+    etf_hints = ("etf", "kodex", "tiger", "rise", "sol", "ace", "hanaro", "plus", "kosef", "kbstar")
+    if any(h in compact for h in etf_hints):
+        for quote in quotes:
+            if (quote.get("quoteType") or "").upper() == "ETF":
+                return quote
+    return quotes[0]
+
+
+def _search_yfinance_ticker(query: str) -> tuple[str, str | None]:
+    search = yf.Search(query, max_results=12)
+    quotes = search.quotes or []
+    picked = _pick_best_search_quote(query, quotes)
+    if not picked or not picked.get("symbol"):
+        raise ValueError(f"「{query}」에 해당하는 종목/ETF를 찾을 수 없습니다.")
+    symbol = str(picked["symbol"])
+    label = picked.get("shortname") or picked.get("longname") or query.strip()
+    return symbol, str(label)
+
+
+def _resolve_korean_code(raw: str) -> str | None:
+    compact = raw.replace(" ", "")
+    match = _KR_STOCK_CODE.match(compact)
+    if not match:
+        return None
+    code, suffix = match.group(1), match.group(3)
+    return f"{code}.{suffix}" if suffix else f"{code}.KS"
 
 
 def resolve_ticker(query: str) -> tuple[str, str | None]:
@@ -169,15 +278,24 @@ def resolve_ticker(query: str) -> tuple[str, str | None]:
             if key in _TICKER_LOOKUP:
                 return _TICKER_LOOKUP[key], raw
 
+    kr_ticker = _resolve_korean_code(raw)
+    if kr_ticker:
+        return kr_ticker, raw
+
     if _TICKER_LIKE.match(raw):
         return raw.upper(), None
 
     if compact.isascii() and 1 <= len(compact) <= 6:
         return compact.upper(), None
 
+    try:
+        return _search_yfinance_ticker(raw)
+    except Exception:
+        pass
+
     raise ValueError(
         f"「{raw}」에 해당하는 종목을 찾을 수 없습니다. "
-        "티커(AAPL, 005930.KS) 또는 등록된 한글 회사명을 입력해 주세요."
+        "티커(AAPL, 069500.KS), ETF명(KODEX 200, SPY) 또는 한글 회사명을 입력해 주세요."
     )
 
 
@@ -244,7 +362,10 @@ def fetch_stock_profile(query: str) -> dict:
     if hist.empty:
         raise ValueError(f"주가 데이터가 없습니다: {symbol}")
 
-    currency = info.get("currency") or "USD"
+    currency = info.get("currency") or (
+        "KRW" if symbol.upper().endswith((".KS", ".KQ")) else "USD"
+    )
+    quote_type = info.get("quoteType") or ""
     price = (
         info.get("regularMarketPrice")
         or info.get("currentPrice")
@@ -268,6 +389,7 @@ def fetch_stock_profile(query: str) -> dict:
         "matched_name": matched_name,
         "symbol": symbol,
         "name": info.get("longName") or info.get("shortName") or symbol,
+        "quote_type": quote_type,
         "currency": currency,
         "price": float(price),
         "price_fmt": _format_price(price, currency),

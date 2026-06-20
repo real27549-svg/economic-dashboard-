@@ -20,7 +20,10 @@ import pick_analysis
 import roadmap_ai
 import roadmap_analytics
 import roadmap_db
+import roadmap_debt
 import roadmap_fields
+import roadmap_holdings
+import roadmap_holdings_ocr
 import stock_search
 
 importlib.reload(env_config)
@@ -32,7 +35,10 @@ importlib.reload(financial_roadmap)
 importlib.reload(roadmap_ai)
 importlib.reload(roadmap_analytics)
 importlib.reload(roadmap_db)
+importlib.reload(roadmap_debt)
 importlib.reload(roadmap_fields)
+importlib.reload(roadmap_holdings)
+importlib.reload(roadmap_holdings_ocr)
 importlib.reload(stock_search)
 importlib.reload(market_extras)
 
@@ -485,13 +491,13 @@ def render_stock_detail(profile: dict, indicator_snapshot: dict) -> None:
 def render_stock_search_section(indicator_snapshot: dict) -> None:
     st.divider()
     st.markdown("### 🔍 종목 검색")
-    st.caption("티커(AAPL, 005930.KS) 또는 한글 회사명(삼성전자, 애플)으로 검색")
+    st.caption("티커(AAPL, 069500), ETF(KODEX 200, SPY), 한글 회사명(삼성전자)으로 검색")
 
     col_input, col_btn = st.columns([4, 1])
     with col_input:
         ticker = st.text_input(
             "티커 심볼",
-            placeholder="삼성전자, 애플, AAPL, 005930.KS",
+            placeholder="삼성전자, KODEX 200, SPY, 069500",
             label_visibility="collapsed",
             key="stock_ticker_input",
         )
