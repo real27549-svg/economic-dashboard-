@@ -56,6 +56,7 @@ from roadmap_holdings import (
     aggregate_holdings,
     clear_quote_cache,
     new_holding,
+    pop_rate_limit_warnings,
     refresh_holding_identity,
     strip_holding_for_save,
 )
@@ -658,6 +659,17 @@ BEGIN
 END $$;"""
 
 
+def _show_holdings_quote_warnings() -> None:
+    for msg in st.session_state.pop("holdings_quote_warnings", []) or []:
+        st.warning(msg)
+
+
+def _stash_holdings_quote_warnings() -> None:
+    warnings = pop_rate_limit_warnings()
+    if warnings:
+        st.session_state["holdings_quote_warnings"] = warnings
+
+
 def _render_stock_holdings_section(local_id: str, saved: dict) -> tuple[float, float]:
     holdings_key = _holdings_session_key(local_id)
     mode_key = "roadmap_holdings_mode"
@@ -684,9 +696,13 @@ def _render_stock_holdings_section(local_id: str, saved: dict) -> tuple[float, f
     domestic_total = 0.0
     foreign_total = 0.0
 
+    _show_holdings_quote_warnings()
+
     if edited_holdings:
         try:
             domestic_total, foreign_total, computed = aggregate_holdings(edited_holdings)
+            _stash_holdings_quote_warnings()
+            _show_holdings_quote_warnings()
         except Exception as exc:
             st.warning(f"보유종목 평가 실패: {exc}")
 
@@ -808,6 +824,8 @@ def _render_stock_holdings_section(local_id: str, saved: dict) -> tuple[float, f
                     )
                     if item.get("error"):
                         row[7].caption("조회 실패")
+                    elif item.get("quote_rate_limited"):
+                        row[7].caption("시세 제한")
                     else:
                         row[7].write(_format_holding_price(item.get("current_price"), market))
                     row[8].write(f"{float(item.get('value_man') or 0):,.1f}")
@@ -855,6 +873,7 @@ def _render_stock_holdings_section(local_id: str, saved: dict) -> tuple[float, f
                     try:
                         created = new_holding(add_query, add_qty, add_avg, add_account)
                         st.session_state[holdings_key] = holdings + [created]
+                        _stash_holdings_quote_warnings()
                         st.rerun()
                     except ValueError as exc:
                         st.error(str(exc))
