@@ -9,13 +9,16 @@ import streamlit as st
 
 import ai_outlook
 import data
+import market_extras
 import stock_search
 
 importlib.reload(data)
 importlib.reload(ai_outlook)
 importlib.reload(stock_search)
+importlib.reload(market_extras)
 from ai_outlook import analyze_market, analyze_stock_signal, build_stock_context, get_api_key
 from data import DASHBOARD_SECTIONS, get_tooltip, load_indicator, recent_window
+from market_extras import fetch_fear_greed_index, fetch_sector_week_returns
 from stock_search import fetch_stock_profile, resolve_ticker
 
 st.set_page_config(
@@ -62,7 +65,7 @@ st.markdown(
 )
 
 CARDS_PER_ROW = 5
-DATA_CACHE_VERSION = 4
+DATA_CACHE_VERSION = 5
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -185,6 +188,110 @@ def render_all_charts(sections_data: list[dict]) -> None:
         st.subheader(section_data["title"])
         for chart in section_data["charts"]:
             st.plotly_chart(chart, use_container_width=True)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def load_fear_greed() -> dict:
+    return fetch_fear_greed_index()
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def load_sector_returns() -> list[dict]:
+    return fetch_sector_week_returns()
+
+
+def build_fear_greed_gauge(fng: dict) -> go.Figure:
+    fig = go.Figure(
+        go.Indicator(
+            mode="gauge+number",
+            value=fng["score"],
+            number={"suffix": " / 100", "font": {"size": 36}},
+            title={
+                "text": f"CNN Fear & Greed Index<br><span style='font-size:14px'>{fng['label']}</span>",
+                "font": {"size": 18},
+            },
+            gauge={
+                "axis": {"range": [0, 100], "tickmode": "linear", "tick0": 0, "dtick": 10},
+                "bar": {"color": fng["color"], "thickness": 0.28},
+                "bgcolor": "white",
+                "borderwidth": 0,
+                "steps": [
+                    {"range": [0, 25], "color": "#fecaca"},
+                    {"range": [25, 45], "color": "#fed7aa"},
+                    {"range": [45, 55], "color": "#fef08a"},
+                    {"range": [55, 75], "color": "#d9f99d"},
+                    {"range": [75, 100], "color": "#bbf7d0"},
+                ],
+            },
+        )
+    )
+    fig.update_layout(
+        height=340,
+        margin=dict(t=70, b=10, l=30, r=30),
+        paper_bgcolor="rgba(0,0,0,0)",
+    )
+    return fig
+
+
+def build_sector_heatmap(sectors_data: list[dict]) -> go.Figure:
+    sorted_data = sorted(sectors_data, key=lambda item: item["return_pct"])
+    sectors = [item["sector"] for item in sorted_data]
+    returns = [item["return_pct"] for item in sorted_data]
+    max_abs = max(max(abs(min(returns)), abs(max(returns))), 1.0)
+
+    fig = go.Figure(
+        data=go.Heatmap(
+            z=[returns],
+            x=sectors,
+            y=["1주 수익률"],
+            text=[[f"{value:+.2f}%" for value in returns]],
+            texttemplate="%{text}",
+            textfont={"size": 11, "color": "#0f172a"},
+            colorscale=[
+                [0.0, "#dc2626"],
+                [0.5, "#f8fafc"],
+                [1.0, "#16a34a"],
+            ],
+            zmid=0,
+            zmin=-max_abs,
+            zmax=max_abs,
+            showscale=True,
+            colorbar={"title": "수익률(%)"},
+            hovertemplate="%{x}: %{z:+.2f}%<extra></extra>",
+        )
+    )
+    fig.update_layout(
+        title=dict(text="S&P 500 섹터별 1주 수익률", x=0, font=dict(size=18)),
+        height=340,
+        margin=dict(t=50, b=10, l=20, r=20),
+    )
+    return fig
+
+
+def render_market_extras_section() -> None:
+    st.divider()
+    st.markdown("### 🌡️ 공포·탐욕 & 섹터")
+    try:
+        with st.spinner("CNN Fear & Greed · 섹터 데이터 불러오는 중..."):
+            fng = load_fear_greed()
+            sectors = load_sector_returns()
+    except Exception as exc:
+        st.error(f"시장 심리/섹터 데이터 로드 실패: {exc}")
+        return
+
+    col_gauge, col_heat = st.columns(2)
+    with col_gauge:
+        st.plotly_chart(build_fear_greed_gauge(fng), use_container_width=True)
+        prev = fng.get("previous_close")
+        week = fng.get("previous_1_week")
+        if prev is not None and week is not None:
+            st.caption(
+                f"전일 {float(prev):.1f} · 1주 전 {float(week):.1f} · "
+                f"0-25 극도공포 | 26-45 공포 | 46-55 중립 | 56-75 탐욕 | 76-100 극도탐욕"
+            )
+    with col_heat:
+        st.plotly_chart(build_sector_heatmap(sectors), use_container_width=True)
+        st.caption("SPDR 섹터 ETF 기준 최근 약 1주(5거래일) 수익률 · 초록=상승, 빨강=하락")
 
 
 def resolve_api_key() -> str | None:
@@ -437,6 +544,8 @@ except Exception as exc:
     st.stop()
 
 render_all_cards(sections_data)
+
+render_market_extras_section()
 
 st.divider()
 st.markdown("### 📈 그래프")
