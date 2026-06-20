@@ -4,19 +4,44 @@ import importlib
 import json
 from datetime import datetime, timezone
 
+import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+from anthropic import AuthenticationError
+
+import env_config
 
 import ai_outlook
+import ai_stock_picks
 import data
+import market_cap_rankings
 import market_extras
+import pick_analysis
 import stock_search
 
+importlib.reload(env_config)
 importlib.reload(data)
 importlib.reload(ai_outlook)
+importlib.reload(pick_analysis)
+importlib.reload(ai_stock_picks)
+importlib.reload(market_cap_rankings)
 importlib.reload(stock_search)
 importlib.reload(market_extras)
-from ai_outlook import analyze_market, analyze_stock_signal, build_stock_context, get_api_key
+from env_config import ENV_FILE, api_key_preview, get_anthropic_api_key
+from ai_outlook import (
+    analyze_market,
+    analyze_stock_signal,
+    build_stock_context,
+    get_api_key,
+)
+from ai_stock_picks import (
+    analyze_stock_picks,
+    build_financial_chart,
+    build_macro_context,
+    build_pick_from_profile,
+)
+from pick_analysis import build_52w_gauge, build_quarterly_chart
+from market_cap_rankings import fetch_market_cap_rankings, style_rankings_table
 from data import DASHBOARD_SECTIONS, get_tooltip, load_indicator, recent_window
 from market_extras import fetch_fear_greed_index, fetch_sector_week_returns
 from stock_search import fetch_stock_profile, resolve_ticker
@@ -295,23 +320,28 @@ def render_market_extras_section() -> None:
 
 
 def resolve_api_key() -> str | None:
-    try:
-        key = st.secrets.get("ANTHROPIC_API_KEY")
-        if key:
-            return key
-    except (AttributeError, FileNotFoundError, KeyError):
-        pass
-    return get_api_key()
+    return get_anthropic_api_key()
+
+
+def _format_ai_error(exc: Exception) -> str:
+    message = str(exc)
+    if isinstance(exc, AuthenticationError) or "invalid x-api-key" in message.lower():
+        return (
+            "API 키 인증에 실패했습니다. "
+            f"`{ENV_FILE}` 파일의 `ANTHROPIC_API_KEY`가 올바른지 확인하고 "
+            "Streamlit을 완전히 재시작한 뒤 다시 시도하세요."
+        )
+    return message
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def get_us_outlook(snapshot_json: str, api_key: str) -> dict:
-    return analyze_market("us", json.loads(snapshot_json), api_key)
+def get_us_outlook(snapshot_json: str) -> dict:
+    return analyze_market("us", json.loads(snapshot_json))
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def get_kr_outlook(snapshot_json: str, api_key: str) -> dict:
-    return analyze_market("kr", json.loads(snapshot_json), api_key)
+def get_kr_outlook(snapshot_json: str) -> dict:
+    return analyze_market("kr", json.loads(snapshot_json))
 
 
 def render_outlook_content(result: dict) -> None:
@@ -355,10 +385,10 @@ def build_stock_chart(chart_df, name: str, symbol: str, currency: str) -> go.Fig
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def get_stock_signal(stock_json: str, snapshot_json: str, api_key: str) -> dict:
+def get_stock_signal(stock_json: str, snapshot_json: str) -> dict:
     stock = json.loads(stock_json)
     snapshot = json.loads(snapshot_json)
-    return analyze_stock_signal(stock, snapshot, api_key)
+    return analyze_stock_signal(stock, snapshot)
 
 
 def render_stock_signal(signal: dict) -> None:
@@ -371,6 +401,78 @@ def render_stock_signal(signal: dict) -> None:
     else:
         st.warning(f"**🟡 AI 신호: 중립**\n\n{reason}")
     st.caption("AI 참고 의견이며 투자 권유가 아닙니다.")
+
+
+def render_stock_detail(profile: dict, indicator_snapshot: dict) -> None:
+    st.subheader(f"{profile['name']} ({profile['symbol']})")
+    st.caption(f"기준: {profile['as_of']}")
+
+    profile_json = json.dumps(
+        {
+            "symbol": profile["symbol"],
+            "name": profile["name"],
+            "price_fmt": profile.get("price_fmt", "N/A"),
+            "per_fmt": profile.get("per_fmt", "N/A"),
+            "market_cap_fmt": profile.get("market_cap_fmt", "N/A"),
+        },
+        ensure_ascii=False,
+    )
+    try:
+        with st.spinner("심화 분석 데이터 불러오는 중..."):
+            pick = load_pick_from_profile(profile_json)
+    except Exception as exc:
+        st.error(f"심화 분석 로드 실패: {exc}")
+        pick = {
+            "symbol": profile["symbol"],
+            "name": profile["name"],
+            "price_fmt": profile.get("price_fmt", "N/A"),
+            "per_fmt": profile.get("per_fmt", "N/A"),
+            "market_cap_fmt": profile.get("market_cap_fmt", "N/A"),
+            "analysis": None,
+            "financials": None,
+        }
+
+    render_stock_analysis_sections(pick)
+
+    st.divider()
+    st.markdown("##### 🤖 AI 매매 신호")
+    api_key = resolve_api_key()
+    if api_key:
+        try:
+            stock_ctx = build_stock_context(profile)
+            stock_json = json.dumps(stock_ctx, ensure_ascii=False, sort_keys=True)
+            snapshot_json = json.dumps(indicator_snapshot, ensure_ascii=False, sort_keys=True)
+            with st.spinner("Claude가 AI 매매 신호 분석 중..."):
+                signal = get_stock_signal(stock_json, snapshot_json)
+            render_stock_signal(signal)
+        except Exception as exc:
+            st.warning(f"AI 매매 신호 분석 실패: {_format_ai_error(exc)}")
+    else:
+        st.info("AI 매매 신호를 보려면 `.env`에 Anthropic API Key를 설정하세요.")
+
+    st.markdown("##### 📉 주가 추이 (최근 1년)")
+    st.plotly_chart(
+        build_stock_chart(
+            profile["chart_df"],
+            profile["name"],
+            profile["symbol"],
+            profile["currency"],
+        ),
+        use_container_width=True,
+    )
+
+    st.markdown("**최근 뉴스**")
+    if not profile["news"]:
+        st.info("최근 뉴스가 없습니다.")
+        return
+
+    for item in profile["news"]:
+        pub = item["published"][:10] if item["published"] else ""
+        publisher = f" · {item['publisher']}" if item["publisher"] else ""
+        if item["url"]:
+            st.markdown(f"- [{item['title']}]({item['url']}) `{pub}{publisher}`")
+        else:
+            st.markdown(f"- {item['title']} `{pub}{publisher}`")
 
 
 def render_stock_search_section(indicator_snapshot: dict) -> None:
@@ -403,52 +505,275 @@ def render_stock_search_section(indicator_snapshot: dict) -> None:
     if profile.get("matched_name") and profile["matched_name"].lower() != profile["symbol"].lower():
         st.info(f"「{profile['query']}」→ **{profile['symbol']}**")
 
-    st.subheader(f"{profile['name']} ({profile['symbol']})")
-    st.caption(f"기준: {profile['as_of']}")
+    render_stock_detail(profile, indicator_snapshot)
 
-    m1, m2, m3, m4, m5 = st.columns(5)
-    m1.metric("현재가", profile["price_fmt"])
-    m2.metric("52주 최고", profile["high_52_fmt"])
-    m3.metric("52주 최저", profile["low_52_fmt"])
-    m4.metric("PER", profile["per_fmt"])
-    m5.metric("시가총액", profile["market_cap_fmt"])
 
-    api_key = resolve_api_key()
-    if api_key:
-        try:
-            stock_ctx = build_stock_context(profile)
-            stock_json = json.dumps(stock_ctx, ensure_ascii=False, sort_keys=True)
-            snapshot_json = json.dumps(indicator_snapshot, ensure_ascii=False, sort_keys=True)
-            with st.spinner("Claude가 AI 매매 신호 분석 중..."):
-                signal = get_stock_signal(stock_json, snapshot_json, api_key)
-            render_stock_signal(signal)
-        except Exception as exc:
-            st.warning(f"AI 매매 신호 분석 실패: {exc}")
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_us_stock_picks(macro_json: str) -> list[dict]:
+    return analyze_stock_picks("us", json.loads(macro_json))
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_kr_stock_picks(macro_json: str) -> list[dict]:
+    return analyze_stock_picks("kr", json.loads(macro_json))
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def load_market_cap_rankings(region: str) -> list[dict]:
+    df = fetch_market_cap_rankings(region)
+    return df.to_dict("records")
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def load_pick_from_profile(profile_json: str) -> dict:
+    return build_pick_from_profile(json.loads(profile_json))
+
+
+def render_stock_analysis_sections(pick: dict) -> None:
+    """AI 종목 추천·종목 검색 공통 심화 분석 UI."""
+    analysis = pick.get("analysis") or {}
+    ratios = analysis.get("ratios") or {}
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("현재가", pick.get("price_fmt", "N/A"))
+    c2.metric("시가총액", pick.get("market_cap_fmt", "N/A"))
+    c3.metric("PER", ratios.get("per", {}).get("fmt") or pick.get("per_fmt", "N/A"))
+    c4.metric("PBR", ratios.get("pbr", {}).get("fmt", "N/A"))
+
+    c5, c6, c7, c8, c9 = st.columns(5)
+    c5.metric("ROE", ratios.get("roe", {}).get("fmt", "N/A"))
+    c6.metric("부채비율", ratios.get("debt_ratio", {}).get("fmt", "N/A"))
+    c7.metric("배당수익률", (analysis.get("dividend") or {}).get("yield_fmt", "N/A"))
+    c8.metric("목표주가", (analysis.get("target_price") or {}).get("fmt", "N/A"))
+    earnings = analysis.get("earnings_date") or {}
+    with c9:
+        st.metric("다음 실적 발표", earnings.get("fmt", "미정"))
+        st.caption(earnings.get("disclaimer", "※ 참고용, 실제와 다를 수 있음"))
+
+    st.markdown("##### 📊 분기별 매출·영업이익 (최근 8분기)")
+    quarterly = analysis.get("quarterly")
+    if quarterly:
+        if not quarterly.get("symbol"):
+            quarterly = {**quarterly, "symbol": pick.get("symbol", "")}
+        st.plotly_chart(
+            build_quarterly_chart(quarterly, pick["name"]),
+            use_container_width=True,
+        )
+        st.caption(f"데이터 출처: {quarterly.get('source', '')}")
     else:
-        st.info("AI 매매 신호를 보려면 `.env`에 Anthropic API Key를 설정하세요.")
+        st.info("분기 실적 데이터 없음")
 
-    st.plotly_chart(
-        build_stock_chart(
-            profile["chart_df"],
-            profile["name"],
-            profile["symbol"],
-            profile["currency"],
-        ),
-        use_container_width=True,
-    )
+    col_l, col_r = st.columns(2)
+    with col_l:
+        st.markdown("##### 📅 어닝 서프라이즈")
+        surprise = analysis.get("earnings_surprise") or {}
+        if surprise.get("has_data"):
+            if surprise.get("beat"):
+                st.success(surprise.get("fmt", ""))
+            else:
+                st.error(surprise.get("fmt", ""))
+            st.caption(f"출처: {surprise.get('source', '')}")
+        else:
+            st.info("실적 서프라이즈 데이터 없음")
 
-    st.markdown("**최근 뉴스**")
-    if not profile["news"]:
-        st.info("최근 뉴스가 없습니다.")
+        st.markdown("##### 💰 배당 (최근 3년)")
+        dividend = analysis.get("dividend") or {}
+        st.write(f"배당수익률: **{dividend.get('yield_fmt', 'N/A')}**")
+        st.write(f"배당 히스토리: {dividend.get('history_fmt', 'N/A')}")
+        st.caption(f"출처: {dividend.get('source', '')}")
+
+    with col_r:
+        st.markdown("##### 📍 52주 최고·최저 대비 위치")
+        pos = analysis.get("price_position_52w") or {}
+        if pos.get("position_pct") is not None:
+            st.plotly_chart(
+                build_52w_gauge(pos, pick["name"]),
+                use_container_width=True,
+            )
+            low, high = pos.get("low"), pos.get("high")
+            if low is not None and high is not None:
+                st.caption(
+                    f"52주 최저 {low:,.2f} · 최고 {high:,.2f} · "
+                    f"현재 위치 {pos['position_pct']:.1f}% ({pos.get('source', '')})"
+                )
+        else:
+            st.info("52주 밴드 데이터 없음")
+
+        st.markdown("##### 📰 뉴스 감성")
+        sentiment = analysis.get("news_sentiment")
+        if sentiment:
+            s1, s2, s3 = st.columns(3)
+            s1.metric("긍정", f"{sentiment.get('positive', 0)}%")
+            s2.metric("중립", f"{sentiment.get('neutral', 0)}%")
+            s3.metric("부정", f"{sentiment.get('negative', 0)}%")
+            if sentiment.get("summary"):
+                st.caption(sentiment["summary"])
+            st.caption(f"출처: {sentiment.get('source', '')}")
+        else:
+            st.info("뉴스 감성 데이터 없음")
+
+    st.markdown("##### 🏁 경쟁사 PER·PBR·ROE 비교")
+    peers = list(analysis.get("peer_comparison") or [])
+    self_row = {
+        "종목": pick["name"],
+        "티커": pick["symbol"],
+        "PER": ratios.get("per", {}).get("fmt", pick.get("per_fmt", "N/A")),
+        "PBR": ratios.get("pbr", {}).get("fmt", "N/A"),
+        "ROE": ratios.get("roe", {}).get("fmt", "N/A"),
+        "출처": "본 종목",
+    }
+    peer_rows = [
+        {
+            "종목": p.get("name", ""),
+            "티커": p.get("symbol", ""),
+            "PER": f"{p['per']:.2f}" if p.get("per") is not None else "N/A",
+            "PBR": f"{p['pbr']:.2f}" if p.get("pbr") is not None else "N/A",
+            "ROE": (
+                f"{p['roe'] * 100:.2f}%"
+                if p.get("roe") is not None and abs(p["roe"]) <= 1
+                else (f"{p['roe']:.2f}%" if p.get("roe") is not None else "N/A")
+            ),
+            "출처": p.get("source", ""),
+        }
+        for p in peers
+    ]
+    st.dataframe(pd.DataFrame([self_row] + peer_rows), use_container_width=True, hide_index=True)
+
+    st.markdown("##### 📈 연간 매출·영업이익 (3년 + 2년 전망)")
+    chart = build_financial_chart(pick)
+    if chart:
+        st.plotly_chart(chart, use_container_width=True)
+        if pick.get("forecast_note"):
+            st.caption(pick["forecast_note"])
+    else:
+        st.info("연간 재무 차트 데이터가 없습니다.")
+
+
+def render_ai_pick_card(pick: dict) -> None:
+    st.markdown(f"#### {pick['name']} (`{pick['symbol']}`)")
+    if pick.get("intro"):
+        st.caption(pick["intro"])
+
+    render_stock_analysis_sections(pick)
+
+    st.markdown("**추천 이유**")
+    st.success(pick.get("reason", ""))
+    st.markdown("**투자 주의사항**")
+    st.warning(pick.get("caution", ""))
+
+
+def _render_rankings_table(
+    region: str,
+    key_prefix: str,
+    indicator_snapshot: dict,
+) -> None:
+    try:
+        with st.spinner("시가총액 Top 100 불러오는 중..."):
+            rows = load_market_cap_rankings(region)
+            df = pd.DataFrame(rows)
+    except Exception as exc:
+        st.error(f"랭킹 데이터 로드 실패: {exc}")
         return
 
-    for item in profile["news"]:
-        pub = item["published"][:10] if item["published"] else ""
-        publisher = f" · {item['publisher']}" if item["publisher"] else ""
-        if item["url"]:
-            st.markdown(f"- [{item['title']}]({item['url']}) `{pub}{publisher}`")
+    if df.empty:
+        st.warning("표시할 종목이 없습니다.")
+        return
+
+    styled = style_rankings_table(df)
+    selection = st.dataframe(
+        styled,
+        use_container_width=True,
+        hide_index=True,
+        on_select="rerun",
+        selection_mode="single-row",
+        key=f"{key_prefix}_rank_table",
+        column_config={"티커": None},
+    )
+
+    selected_rows = selection.selection.rows if selection.selection else []
+    if selected_rows:
+        row = df.iloc[selected_rows[0]]
+        st.markdown("---")
+        st.markdown(f"**선택 종목 상세 분석 — {row['name']} ({row['ticker']})**")
+        try:
+            with st.spinner(f"{row['ticker']} 상세 조회 중..."):
+                profile = load_stock_profile(row["ticker"])
+            render_stock_detail(profile, indicator_snapshot)
+        except Exception as exc:
+            st.error(f"종목 상세 조회 실패: {exc}")
+    else:
+        st.caption("표에서 행을 클릭하면 해당 종목의 상세 분석이 표시됩니다.")
+
+
+def render_ai_stock_recommendations_section(indicator_snapshot: dict) -> None:
+    st.markdown("### 🤖 AI 종목 추천")
+    st.caption(
+        "Claude가 금리·인플레·VIX·공포탐욕·섹터 히트맵을 반영해 종목을 추천합니다. "
+        "투자 참고용이며 투자 권유가 아닙니다."
+    )
+
+    tab_picks, tab_rank = st.tabs(["AI 추천 종목", "시가총액 Top 100"])
+
+    with tab_picks:
+        api_key = resolve_api_key()
+        if not api_key:
+            st.warning(
+                "`.env` 파일에 API Key를 저장해 주세요. "
+                "프로젝트 폴더의 `.env.example`을 `.env`로 복사한 뒤 키를 입력하면 자동으로 불러옵니다."
+            )
         else:
-            st.markdown(f"- {item['title']} `{pub}{publisher}`")
+            st.caption(
+                f"로드된 API 키 (앞 10자): `{api_key_preview(api_key)}` · `.env`: `{ENV_FILE}`"
+            )
+            try:
+                fear_greed = load_fear_greed()
+                sectors = load_sector_returns()
+                macro = build_macro_context(indicator_snapshot, fear_greed, sectors)
+            except Exception as exc:
+                st.error(f"거시·시장 데이터 준비 실패: {exc}")
+                macro = {"indicators": indicator_snapshot}
+
+            macro_json = json.dumps(macro, ensure_ascii=False, sort_keys=True)
+            tab_us, tab_kr = st.tabs(["🇺🇸 미장 (미국 5개)", "🇰🇷 국장 (한국 5개)"])
+
+            with tab_us:
+                if st.button("미장 추천 새로고침", key="refresh_us_picks"):
+                    get_us_stock_picks.clear()
+                try:
+                    with st.spinner("Claude가 거시환경을 분석하고 미장 종목을 추천하는 중..."):
+                        us_picks = get_us_stock_picks(macro_json)
+                    for idx, pick in enumerate(us_picks):
+                        with st.container(border=True):
+                            render_ai_pick_card(pick)
+                        if idx < len(us_picks) - 1:
+                            st.markdown("")
+                except Exception as exc:
+                    st.error(f"미장 AI 추천 실패: {_format_ai_error(exc)}")
+
+            with tab_kr:
+                if st.button("국장 추천 새로고침", key="refresh_kr_picks"):
+                    get_kr_stock_picks.clear()
+                try:
+                    with st.spinner("Claude가 거시환경을 분석하고 국장 종목을 추천하는 중..."):
+                        kr_picks = get_kr_stock_picks(macro_json)
+                    for idx, pick in enumerate(kr_picks):
+                        with st.container(border=True):
+                            render_ai_pick_card(pick)
+                        if idx < len(kr_picks) - 1:
+                            st.markdown("")
+                except Exception as exc:
+                    st.error(f"국장 AI 추천 실패: {_format_ai_error(exc)}")
+
+    with tab_rank:
+        tab_us_rank, tab_kr_rank = st.tabs(["미장 Top 100", "국장 Top 100"])
+        with tab_us_rank:
+            if st.button("미장 랭킹 새로고침", key="refresh_us_rank"):
+                load_market_cap_rankings.clear()
+            _render_rankings_table("us", "us", indicator_snapshot)
+        with tab_kr_rank:
+            if st.button("국장 랭킹 새로고침", key="refresh_kr_rank"):
+                load_market_cap_rankings.clear()
+            _render_rankings_table("kr", "kr", indicator_snapshot)
 
 
 def render_ai_outlook_section(indicator_snapshot: dict) -> None:
@@ -464,6 +789,8 @@ def render_ai_outlook_section(indicator_snapshot: dict) -> None:
         )
         return
 
+    st.caption(f"로드된 API 키 (앞 10자): `{api_key_preview(api_key)}`")
+
     snapshot_json = json.dumps(indicator_snapshot, ensure_ascii=False, sort_keys=True)
     tab_us, tab_kr = st.tabs(["미국 시장 (미장)", "한국 시장 (국장)"])
 
@@ -472,20 +799,20 @@ def render_ai_outlook_section(indicator_snapshot: dict) -> None:
             get_us_outlook.clear()
         try:
             with st.spinner("Claude가 미국 시장을 분석하는 중..."):
-                us_result = get_us_outlook(snapshot_json, api_key)
+                us_result = get_us_outlook(snapshot_json)
             render_outlook_content(us_result)
         except Exception as exc:
-            st.error(f"AI 분석 실패: {exc}")
+            st.error(f"AI 분석 실패: {_format_ai_error(exc)}")
 
     with tab_kr:
         if st.button("국장 분석 새로고침", key="refresh_kr"):
             get_kr_outlook.clear()
         try:
             with st.spinner("Claude가 한국 시장을 분석하는 중..."):
-                kr_result = get_kr_outlook(snapshot_json, api_key)
+                kr_result = get_kr_outlook(snapshot_json)
             render_outlook_content(kr_result)
         except Exception as exc:
-            st.error(f"AI 분석 실패: {exc}")
+            st.error(f"AI 분석 실패: {_format_ai_error(exc)}")
 
 
 st.title("경제 지표 대시보드")
@@ -543,18 +870,19 @@ except Exception as exc:
     st.error(f"데이터를 불러오지 못했습니다: {exc}")
     st.stop()
 
-render_all_cards(sections_data)
+tab_main, tab_picks = st.tabs(["📊 지표 & 차트", "🤖 AI 종목 추천"])
 
-render_market_extras_section()
+with tab_main:
+    render_all_cards(sections_data)
+    render_market_extras_section()
+    st.divider()
+    st.markdown("### 📈 그래프")
+    render_all_charts(sections_data)
+    render_stock_search_section(indicator_snapshot)
+    render_ai_outlook_section(indicator_snapshot)
+    st.caption(
+        "데이터: [FRED](https://fred.stlouisfed.org/) · 코스피/금: yfinance · AI: Claude · 5분 캐시"
+    )
 
-st.divider()
-st.markdown("### 📈 그래프")
-render_all_charts(sections_data)
-
-render_stock_search_section(indicator_snapshot)
-
-render_ai_outlook_section(indicator_snapshot)
-
-st.caption(
-    "데이터: [FRED](https://fred.stlouisfed.org/) · 코스피/금: yfinance · AI: Claude · 5분 캐시"
-)
+with tab_picks:
+    render_ai_stock_recommendations_section(indicator_snapshot)

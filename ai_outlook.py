@@ -3,13 +3,11 @@
 import json
 import os
 import re
-from pathlib import Path
 from typing import Literal
 
 from anthropic import Anthropic
-from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).resolve().parent / ".env")
+from env_config import get_anthropic_api_key, require_anthropic_api_key
 
 MarketType = Literal["us", "kr"]
 
@@ -62,7 +60,12 @@ DEFAULT_MODEL = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-6")
 
 
 def get_api_key() -> str | None:
-    return os.environ.get("ANTHROPIC_API_KEY")
+    return get_anthropic_api_key()
+
+
+def create_anthropic_client() -> Anthropic:
+    key = require_anthropic_api_key()
+    return Anthropic(api_key=key)
 
 
 def pick_indicators(snapshot: dict, keys: list[str]) -> dict:
@@ -192,12 +195,12 @@ def build_stock_context(profile: dict) -> dict:
     }
 
 
-def analyze_stock_signal(stock: dict, snapshot: dict, api_key: str) -> dict:
+def analyze_stock_signal(stock: dict, snapshot: dict) -> dict:
     indicators = pick_indicators(snapshot, STOCK_SIGNAL_MACRO_KEYS)
     if not indicators:
         raise ValueError("거시지표 데이터가 없습니다.")
 
-    client = Anthropic(api_key=api_key)
+    client = create_anthropic_client()
     prompt = _build_stock_signal_prompt(stock, indicators)
     message = client.messages.create(
         model=DEFAULT_MODEL,
@@ -207,13 +210,13 @@ def analyze_stock_signal(stock: dict, snapshot: dict, api_key: str) -> dict:
     return _parse_signal_response(message.content[0].text)
 
 
-def analyze_market(market: MarketType, snapshot: dict, api_key: str) -> dict:
+def analyze_market(market: MarketType, snapshot: dict) -> dict:
     keys = US_INDICATOR_KEYS if market == "us" else KR_INDICATOR_KEYS
     indicators = pick_indicators(snapshot, keys)
     if not indicators:
         raise ValueError("분석할 지표 데이터가 없습니다.")
 
-    client = Anthropic(api_key=api_key)
+    client = create_anthropic_client()
     prompt = _build_prompt(market, indicators)
     message = client.messages.create(
         model=DEFAULT_MODEL,

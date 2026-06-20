@@ -6,3 +6,6 @@ plotly>=5.18.0
 yfinance>=0.2.40
 anthropic>=0.40.0
 python-dotenv>=1.0.0
+finance-datareader>=0.9.90
+lxml>=4.9.0
+html5lib>=1.1
