@@ -6,7 +6,13 @@ from datetime import date
 
 import streamlit as st
 
-from env_config import ENV_FILE, api_key_preview, get_anthropic_api_key, supabase_config_status
+from env_config import (
+    ENV_FILE,
+    anthropic_config_status,
+    api_key_preview,
+    supabase_config_status,
+)
+import env_config
 from financial_roadmap import (
     HORIZON_LABELS,
     ROADMAP_HORIZONS,
@@ -69,7 +75,7 @@ def _load_sector_returns() -> list[dict]:
 
 
 def _resolve_api_key() -> str | None:
-    return get_anthropic_api_key()
+    return env_config.get_anthropic_api_key()
 
 
 def _render_number_grid(
@@ -458,8 +464,17 @@ def render_financial_roadmap_section(indicator_snapshot: dict) -> None:
 
     api_key = _resolve_api_key()
     if not api_key:
-        st.warning("`.env`에 Anthropic API Key를 설정하면 AI 분석을 사용할 수 있습니다.")
-        return
+        ak = anthropic_config_status()
+        st.warning(
+            "AI 분석을 사용하려면 Anthropic API Key가 필요합니다. "
+            "로컬: `.env` · Cloud: Streamlit **Settings → Secrets**에 "
+            "`ANTHROPIC_API_KEY`를 설정하세요."
+        )
+        st.caption(
+            f"진단: env 파일={ak['env_file_exists']} · "
+            f"키 입력={ak['raw_set']} · 유효={ak['key_valid']} · "
+            f"미리보기={ak['preview']}"
+        )
 
     local_id = ensure_local_user_id()
     with st.expander("내 데이터 ID (다른 기기에서 불러오기)", expanded=False):
@@ -474,7 +489,10 @@ def render_financial_roadmap_section(indicator_snapshot: dict) -> None:
             else:
                 st.error("유효하지 않은 ID입니다.")
 
-    st.caption(f"API 키: `{api_key_preview(api_key)}` · 데이터 ID: `{local_id[:8]}…`")
+    if api_key:
+        st.caption(f"API 키: `{api_key_preview(api_key)}` · 데이터 ID: `{local_id[:8]}…`")
+    else:
+        st.caption(f"데이터 ID: `{local_id[:8]}…`")
 
     tab_fixed, tab_monthly, tab_annual, tab_variable, tab_analysis = st.tabs(
         ["📌 고정 정보", "📅 월별", "📆 연간", "🔄 변동", "🤖 AI 분석"]
@@ -512,7 +530,10 @@ def render_financial_roadmap_section(indicator_snapshot: dict) -> None:
             c4.metric("월 저축", metrics.get("monthly_savings_fmt", "N/A"))
             _render_history_charts(local_id, metrics)
 
-        if st.button("AI 종합 분석 실행", type="primary", use_container_width=True, key="run_ai"):
+        if not api_key:
+            st.error("Anthropic API Key가 설정되지 않아 AI 분석을 실행할 수 없습니다.")
+        elif st.button("AI 종합 분석 실행", type="primary", use_container_width=True, key="run_ai"):
+            macro = {"indicators": indicator_snapshot}
             try:
                 monthly_history = list_monthly_history(local_id)
                 annual_history = list_annual_history(local_id)
@@ -535,10 +556,7 @@ def render_financial_roadmap_section(indicator_snapshot: dict) -> None:
                     fear_greed = _load_fear_greed()
                     sectors = _load_sector_returns()
                     macro = build_roadmap_macro(indicator_snapshot, fear_greed, sectors)
-            except Exception:
-                macro = {"indicators": indicator_snapshot}
 
-            try:
                 with st.spinner("Claude가 종합 로드맵을 작성하는 중..."):
                     roadmap = generate_comprehensive_roadmap(context, macro)
                 st.session_state["roadmap_ai_result"] = roadmap

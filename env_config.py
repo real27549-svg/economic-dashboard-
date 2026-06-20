@@ -70,9 +70,8 @@ def parse_env_file() -> dict[str, str]:
 
 
 def get_anthropic_api_key() -> str | None:
-    """os.environ 없이 `.env` 파일 내용만으로 API 키를 반환합니다."""
-    values = parse_env_file()
-    return normalize_api_key(values.get("ANTHROPIC_API_KEY"))
+    """`.env`, 환경변수, Streamlit Secrets에서 API 키를 반환합니다."""
+    return normalize_api_key(_env_lookup("ANTHROPIC_API_KEY"))
 
 
 def _env_lookup(name: str) -> str | None:
@@ -89,6 +88,11 @@ def _streamlit_secret(name: str) -> str | None:
 
         if name in st.secrets:
             return str(st.secrets[name]).strip()
+        anthropic = st.secrets.get("anthropic")
+        if anthropic and name == "ANTHROPIC_API_KEY":
+            for key in ("api_key", "ANTHROPIC_API_KEY", "key"):
+                if anthropic.get(key):
+                    return str(anthropic[key]).strip()
         supabase = st.secrets.get("supabase")
         if supabase:
             alias = {
@@ -115,6 +119,19 @@ def get_supabase_anon_key() -> str | None:
         if key:
             return key
     return None
+
+
+def anthropic_config_status() -> dict[str, bool | str]:
+    values = parse_env_file()
+    raw = _env_lookup("ANTHROPIC_API_KEY")
+    normalized = normalize_api_key(raw)
+    return {
+        "env_file_exists": ENV_FILE.is_file(),
+        "raw_set": bool(raw),
+        "key_valid": bool(normalized),
+        "preview": api_key_preview(normalized),
+        "found_in_env": "ANTHROPIC_API_KEY" in values,
+    }
 
 
 def supabase_config_status() -> dict[str, bool | str]:

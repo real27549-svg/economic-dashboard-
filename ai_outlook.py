@@ -7,7 +7,7 @@ from typing import Literal
 
 from anthropic import Anthropic
 
-from env_config import get_anthropic_api_key, require_anthropic_api_key
+import env_config
 
 MarketType = Literal["us", "kr"]
 
@@ -60,11 +60,11 @@ DEFAULT_MODEL = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-6")
 
 
 def get_api_key() -> str | None:
-    return get_anthropic_api_key()
+    return env_config.get_anthropic_api_key()
 
 
 def create_anthropic_client() -> Anthropic:
-    key = require_anthropic_api_key()
+    key = env_config.require_anthropic_api_key()
     return Anthropic(api_key=key)
 
 
